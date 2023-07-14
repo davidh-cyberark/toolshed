@@ -8,8 +8,9 @@ BINDIR = ./bin
 TOOLDIR = ./tools
 
 PLANTUML_DL_URL = https://github.com/plantuml/plantuml/releases/download/v1.2023.9/plantuml.jar
-NPMDIR=$(shell npm root)
+NPMDIR = $(shell npm root)
 VERSION = $(shell cat VERSION)
+NEXTVERSION = $(shell echo "$(VERSION)" | awk -F. '{print $$1"."$$2"."$$3+1}')
 
 LDFLAGS = -ldflags "-X main.version=$(VERSION)"
 
@@ -23,6 +24,9 @@ $(BINDIR)/toolshed: ./cmd/toolshed/toolshed.go | $(BINDIR)
 
 $(BINDIR)/provengine: ./cmd/provengine/provengine.go | $(BINDIR)
 	go build -o $@ $(LDFLAGS) ./cmd/provengine
+
+versionbump:
+	echo "$(VERSION)" | awk -F. '{print $$1"."$$2"."$$3+1}' > VERSION
 
 docs: README.html
 
@@ -47,3 +51,10 @@ realclean: clean
 	rm -rf $(BINDIR)/plantuml.jar
 	rm -rf $(BINDIR)/markdown-it
 	rm -rf ./node_modules package.json package-lock.json
+
+vardump:
+	@echo "VERSION: $(VERSION)"
+	@echo "NEXTVERSION: $(NEXTVERSION)"
+	@echo "NPMDIR: $(NPMDIR)"
+	@echo "PLANTUML_DL_URL: $(PLANTUML_DL_URL)"
+	@echo "LDFLAGS: $(LDFLAGS)"

@@ -1,7 +1,7 @@
 ---
 Title:    IT Tool Shed
 Author:   David Hisel <david.hisel@cyberark.com>
-Updated:  <2023-07-07 15:41:13 david.hisel>
+Updated:  <2023-07-12 15:20:50 david.hisel>
 
 Comment:  The toolshed is an app to simulate the intake and provisioning
           of requests from application developers to IT staff to
@@ -42,6 +42,71 @@ Provisioner -> ProvEngine: Send Resource Details
 ProvEngine -> ProvEngine: CyberArk PAS\nAutomation Goes Here
 ProvEngine -> ITSMApp: Report Resource Access Details
 ITSMApp -> AppDev: Provide Access Details
+@enduml
+```
+
+### "CyberArk PAS Automation Goes Here"
+
+#### Toolshed Simulated Architecture
+
+```plantuml
+@startuml
+title Toolshed Simulated Architecture Diagram
+actor AppDev as "App Developer"
+
+AppDev -right-> [Toolshed]
+[Toolshed] -right-> [ProvEngine]: (1) Submit intake
+[ProvEngine] <-up- [Provider Creds\n(Conjur)]: (2) (Alternative)\nLoad creds\nIAM Auth to Conjur
+[ProvEngine] <-up- [Provider Creds\n(Local FIle)]: (2) Load creds
+[ProvEngine] --> [Provider]: (3) Request\nResource
+[ProvEngine] <-- [Provider]: (4) Send\nResource\nDetails
+[ProvEngine] --> [PASVault]: (5) Add\nAccount
+
+
+json Legend {
+ "Toolshed": "ITSM App\n(Ex: ServiceNow)",
+ "ProvEngine": "Provision Engine\n(Ex: in-house app)",
+ "Provisioner": "Provisioner\n(Ex: Terraform)",
+ "Provider": "Provider\n(Ex: AWS)",
+ "PASVault": "PAS Vault"
+}
+@enduml
+```
+
+#### Scenario 1 -- Provide Creds in a File
+
+```plantuml
+@startuml Scenario1Diagram.png
+title Scenario 1 -- Provide Creds in a File
+participant ProvEngine as "Provision Engine\n(Ex: in-house app)"
+participant Provisioner as "Provisioner\n(Ex: Terraform)"
+participant Provider as "Provider\n(Ex: AWS)"
+
+ProvEngine -> ProvEngine: Read Provider creds from a file
+ProvEngine -> Provisioner: Pass Provider creds
+Provisioner -> Provider: (Provider creds) Request resource
+Provider -> Provider: Create resource
+Provider -> ProvEngine: Send Resource Details
+ProvEngine -> ProvEngine: Store details in PAS Vault
+@enduml
+```
+
+#### Scenario 2 -- Provide Creds from Conjur
+
+```plantuml
+@startuml Scenario2Diagram.png
+title Scenario 2 - Provide Creds from Conjur
+participant ProvEngine as "Provision Engine\n(Ex: in-house app)"
+participant Provisioner as "Provisioner\n(Ex: Terraform)"
+participant Provider as "Provider\n(Ex: AWS)"
+
+note over ProvEngine #FFAAAA: HOW TO GET CONNECTION\nCREDS FOR CONJUR?
+ProvEngine -> ProvEngine: Read Provider creds from Conjur
+ProvEngine -> Provisioner: Pass Provider creds
+Provisioner -> Provider: (Provider creds) Request resource
+Provider -> Provider: Create resource
+Provider -> ProvEngine: Send Resource Details
+ProvEngine -> ProvEngine: Store details in PAS Vault
 @enduml
 ```
 
@@ -94,45 +159,6 @@ endnote
 @enduml
 ```
 
-<!--
-```plantuml
-@startuml pas-automation-diagram.png
-
-' Render: plantuml -tpng README.md -o images
-
-title Accelerator: PAS Automation - MVP
-
-participant "User"
-participant "User compute"
-participant "ProvEngine"
-participant "New EC2 Instance"
-participant "CyberArk Identity"
-participant "CyberArk PrivCloud"
-participant "CyberArk Conjur Cloud"
-
-"User"->"ProvEngine": Submit request
-"ProvEngine"->"New EC2 Instance": Provision
-rnote over "New EC2 Instance"
-v1: provision w/ hardcoded creds
-v2: pull creds from vault
-endnote
-"ProvEngine"<-"New EC2 Instance": Get password
-"ProvEngine"->"CyberArk Conjur Cloud": auth-iam
-"ProvEngine"<-"CyberArk Conjur Cloud": Conjur Token
-"ProvEngine"<-"CyberArk Conjur Cloud": Retrieve PCloud/Conjur Admin password
-"ProvEngine"->"CyberArk Identity": Oauth2 conf client authn
-"ProvEngine"<-"CyberArk Identity": PCloud token
-"ProvEngine"->"CyberArk Identity": check if requesting user has access\nto requested safe
-"ProvEngine"->"CyberArk PrivCloud": Create Windows account in existing safe
-"User"<-"ProvEngine": confirmation
-"User compute"->"New EC2 Instance": access EC2 instance w/ DPA or whatever
-@enduml
-```
--->
-![Request Flow Diagram](./images/pas-automation-diagram.png)
-
-## "CyberArk PAS Automation Goes Here"
-
 ### Meta
 
 #### Document Toolchain
@@ -183,3 +209,57 @@ endnote
       ;; update preview buffer when md file is saved
       (add-hook 'before-save-hook 'markdown-live-preview-re-export))
     ```
+
+## NOTES
+
+https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServices/Add%20Account%20v10.htm?tocpath=Developer%7CREST%20APIs%7CAccounts%7C_____5
+https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServices/Implementing%20Privileged%20Account%20Security%20Web%20Services%20.htm?tocpath=Developer%7CREST%20APIs%7C_____0
+* platform id: "winlocal"  # this goes into the json body
+* platform id: "unixssh" # this goes into the json body
+
+  ```json
+  {
+    "name": "INSTANCE ID",
+    "address": "PUBLIC DNS",
+    "userName": "Administrator", # or Ubuntu
+    "platformId": "string",
+    "safeName": "string",
+    "secretType": "key",  # windows: "password"
+    "secret": "string"  # PEM Key contents, or windows raw plaintext
+  }
+  ```
+### PAS Automation MVP diagram
+
+```plantuml
+@startuml pas-automation-diagram.png
+
+' Render: plantuml -tpng README.md -o images
+
+title Accelerator: PAS Automation - MVP
+
+participant "User"
+participant "User compute"
+participant "ProvEngine"
+participant "New EC2 Instance"
+participant "CyberArk Identity"
+participant "CyberArk PrivCloud"
+participant "CyberArk Conjur Cloud"
+
+"User"->"ProvEngine": Submit request
+"ProvEngine"->"New EC2 Instance": Provision
+rnote over "New EC2 Instance"
+v1: provision w/ hardcoded creds
+v2: pull creds from vault
+endnote
+"ProvEngine"<-"New EC2 Instance": Get password
+"ProvEngine"->"CyberArk Conjur Cloud": auth-iam
+"ProvEngine"<-"CyberArk Conjur Cloud": Conjur Token
+"ProvEngine"<-"CyberArk Conjur Cloud": Retrieve PCloud/Conjur Admin password
+"ProvEngine"->"CyberArk Identity": Oauth2 conf client authn
+"ProvEngine"<-"CyberArk Identity": PCloud token
+"ProvEngine"->"CyberArk Identity": check if requesting user has access\nto requested safe
+"ProvEngine"->"CyberArk PrivCloud": Create Windows account in existing safe
+"User"<-"ProvEngine": confirmation
+"User compute"->"New EC2 Instance": access EC2 instance w/ DPA or whatever
+@enduml
+```

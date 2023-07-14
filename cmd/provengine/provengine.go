@@ -1,16 +1,23 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,67 +26,150 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
+// Add CLI param fields here, and add processing of params to func ParseParams()
+type CLIparams struct {
+	name          *string
+	value         *string
+	keyname       *string
+	ami           *string
+	debug         *bool
+	ver           *bool
+	vaultuser     *string
+	vaultpass     *string
+	vaultbaseurl  *string // ex: "https://somehostname.com"
+	vaultsafename *string
+	awscredfile   *string
+	awsconfigfile *string
+}
+
 var (
 	version = "dev"
 	DEBUG   = false
+	CLI     CLIparams
 )
 
-type EC2CreateInstanceAPI interface {
-	RunInstances(ctx context.Context,
-		params *ec2.RunInstancesInput,
-		optFns ...func(*ec2.Options)) (*ec2.RunInstancesOutput, error)
-
-	CreateTags(ctx context.Context,
-		params *ec2.CreateTagsInput,
-		optFns ...func(*ec2.Options)) (*ec2.CreateTagsOutput, error)
+// PASClient contains the data necessary for requests to pass successfully
+type PASClient struct {
+	BaseURL      string
+	AuthType     string
+	InsecureTLS  bool
+	SessionToken string
 }
 
-func MakeInstance(c context.Context, api EC2CreateInstanceAPI, input *ec2.RunInstancesInput) (*ec2.RunInstancesOutput, error) {
-	return api.RunInstances(c, input)
+// PASAddAccountInput request used to create an account
+type PASAddAccountInput struct {
+	Name       string `json:"name,omitempty"`
+	Address    string `json:"address"`
+	UserName   string `json:"userName"`
+	PlatformID string `json:"platformId"`
+	SafeName   string `json:"safeName"`
+	SecretType string `json:"secretType"`
+	Secret     string `json:"secret"`
 }
 
-func MakeTags(c context.Context, api EC2CreateInstanceAPI, input *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
-	return api.CreateTags(c, input)
+// PASAddAccountOutput response from getting specific account details
+type PASAddAccountOutput struct {
+	CategoryModificationTime  int               `json:"categoryModificationTime"`
+	ID                        string            `json:"id"`
+	Name                      string            `json:"name"`
+	Address                   string            `json:"address"`
+	UserName                  string            `json:"userName"`
+	PlatformID                string            `json:"platformId"`
+	SafeName                  string            `json:"safeName"`
+	SecretType                string            `json:"secretType"`
+	PlatformAccountProperties map[string]string `json:"platformAccountProperties"`
+	SecretManagement          SecretManagement  `json:"secretManagement"`
+	CreatedTime               int               `json:"createdTime"`
 }
 
-func CreateInstanceCmd() {
-	name := flag.String("n", "", "The name of the tag to attach to the instance")
-	value := flag.String("v", "", "The value of the tag to attach to the instance")
-	keyname := flag.String("k", "", "The name of the keypair to use")
-	ami := flag.String("a", "", "The AMI to use")
-	debug := flag.Bool("d", false, "Enable debug settings")
-	ver := flag.Bool("version", false, "Print version")
+// SecretManagement used in getting and setting accounts
+type SecretManagement struct {
+	AutomaticManagementEnabled bool   `json:"automaticManagementEnabled"`
+	Status                     string `json:"status"`
+	ManualManagementReason     string `json:"manualManagementReason,omitempty"`
+	LastModifiedTime           int    `json:"lastModifiedTime,omitempty"`
+}
+
+func ParseParams() {
+	CLI.name = flag.String("n", "", "The name of the tag to attach to the instance")
+	CLI.value = flag.String("v", "", "The value of the tag to attach to the instance")
+	CLI.keyname = flag.String("k", "", "The name of the keypair to use")
+	CLI.ami = flag.String("a", "", "The AMI to use")
+	CLI.debug = flag.Bool("d", false, "Enable debug settings")
+	CLI.ver = flag.Bool("version", false, "Print version")
+	CLI.vaultuser = flag.String("vaultuser", "", "Vault username to use to create session token")
+	CLI.vaultpass = flag.String("vaultpass", "", "Vault user's password to use to create session token")
+	CLI.vaultbaseurl = flag.String("vaultbaseurl", "", "Vault base url, ex: https://example.com")
+	CLI.vaultsafename = flag.String("vaultsafename", "", "Vault safe name where to post the new account info")
+	CLI.awscredfile = flag.String("awscredfile", "", "Path to AWS Credentials file; REF: https://docs.aws.amazon.com/sdkref/latest/guide/file-format.html")
+	CLI.awsconfigfile = flag.String("awsconfigfile", "", "Path to AWS Config file")
 	flag.Parse()
 
-	if *ver {
+	if *CLI.ver {
 		log.Printf("Version: %s\n", version)
-		return
+		os.Exit(0)
 	}
 
-	DEBUG = *debug
-
-	if *name == "" || *value == "" {
-		log.Println("You must supply a name and value for the tag (-n NAME -v VALUE)")
-		return
+	msg := ""
+	if *CLI.vaultuser == "" || *CLI.vaultpass == "" || *CLI.vaultbaseurl == "" {
+		msg += "You must supply vault baseurl, user, pass (-vaultuser USER -vaultpas PASS -vaultbaseurl \"HTTPS://EXAMPLE.COM\")"
 	}
-	if *keyname == "" {
-		log.Println("You must supply a keypair name (-k KEYPAIR-NAME) if not exists, one will be created")
-		return
+	if *CLI.vaultsafename == "" {
+		msg += "You must supply vault safe name (-vaultsafename \"SAFENAME\")"
 	}
-	if *ami == "" {
-		log.Println("You must supply an AMI name (-a AMI-NAME), ex: -a \"ami-05cc83e573412838f\"")
-		return
+	if *CLI.name == "" || *CLI.value == "" {
+		msg += "You must supply a name and value for the tag (-n NAME -v VALUE)\n"
+	}
+	if *CLI.keyname == "" {
+		msg += "You must supply a keypair name (-k KEYPAIR-NAME) if not exists, one will be created\n"
+	}
+	if *CLI.ami == "" {
+		msg += "You must supply an AMI name (-a AMI-NAME), ex: -a \"ami-05cc83e573412838f\"\n"
+	}
+	if *CLI.awscredfile == "" || *CLI.awsconfigfile == "" {
+		log.Println("WARN: Both AWS Credential and AWS Config parameters must be set; Using default location, if it exists.")
+		log.Println("WARN: Must pass in both params to use AWS cred/config files (-awscredfile \"PATH_TO_AWS_CREDENTIALS\" -awsconfigfile \"PATH_TO_AWS_CONFIG\")")
+	}
+	if len(msg) > 0 {
+		log.Printf("%s\n", msg)
+		os.Exit(1)
+	}
+}
+
+func CreateInstanceCmd() (*PASAddAccountInput, error) {
+	DEBUG = *CLI.debug
+
+	pasdata := &PASAddAccountInput{
+		Name:       "",
+		Address:    "",
+		UserName:   "",
+		PlatformID: "",
+		SafeName:   "",
+		SecretType: "",
+		Secret:     "",
 	}
 
-	log.Printf("Provisioning:\n\tAMI: %s\n\tTAG: %s=%s\n\tKPN: %s\n", *ami, *name, *value, *keyname)
+	log.Printf("Provisioning:\n\tAMI: %s\n\tTAG: %s=%s\n\tKPN: %s\n", *CLI.ami, *CLI.name, *CLI.value, *CLI.keyname)
 
-	clientLogModeFlags := aws.LogRetries
-	if *debug {
+	var clientLogModeFlags aws.ClientLogMode
+	if DEBUG {
 		clientLogModeFlags = aws.LogRetries | aws.LogRequest | aws.LogRequestWithBody | aws.LogResponse | aws.LogResponseWithBody | aws.LogDeprecatedUsage | aws.LogRequestEventMessage | aws.LogResponseEventMessage
 	}
 
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithClientLogMode(clientLogModeFlags))
+	var cfg aws.Config
+	var err error
+	if *CLI.awscredfile != "" && *CLI.awsconfigfile != "" {
+		cfg, err = config.LoadDefaultConfig(context.TODO(),
+			config.WithSharedCredentialsFiles(
+				[]string{"test/credentials", "data/credentials"},
+			),
+			config.WithSharedConfigFiles(
+				[]string{"test/config", "data/config"},
+			),
+			config.WithClientLogMode(clientLogModeFlags))
+	} else {
+		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithClientLogMode(clientLogModeFlags))
+	}
 
 	if err != nil {
 		panic("configuration error, " + err.Error())
@@ -87,51 +177,26 @@ func CreateInstanceCmd() {
 
 	client := ec2.NewFromConfig(cfg)
 
-	keypairID, privKey := CreateKeyPair(*client, *keyname)
+	// Create a keypair to use for the new instance
+	keypairID, privKey := CreateKeyPair(*client, *CLI.keyname)
 	if privKey == "" {
-		log.Println("Failed to create key pair.")
-		return
+		return pasdata, fmt.Errorf("failed to create key pair")
 	}
 
 	// Create separate values if required.
 	minMaxCount := int32(1)
 
 	input := &ec2.RunInstancesInput{
-		ImageId:      aws.String(*ami),
+		ImageId:      aws.String(*CLI.ami),
 		InstanceType: types.InstanceTypeT3Medium,
 		MinCount:     &minMaxCount,
 		MaxCount:     &minMaxCount,
-		KeyName:      keyname,
+		KeyName:      CLI.keyname,
 	}
 
 	result, err := client.RunInstances(context.TODO(), input)
 	if err != nil {
-		log.Printf("ERROR: Got an error creating an instance: %s", err)
-		return
-	}
-
-	imageInfo, err := client.DescribeImages(context.TODO(), &ec2.DescribeImagesInput{
-		ImageIds: []string{*ami},
-	})
-	if err != nil {
-		log.Printf("WARN: could not retrieve AMI info: %s\n", err)
-	}
-
-	tagInput := &ec2.CreateTagsInput{
-		Resources: []string{*result.Instances[0].InstanceId},
-		Tags: []types.Tag{
-			{
-				Key:   name,
-				Value: value,
-			},
-		},
-	}
-
-	_, err = MakeTags(context.TODO(), client, tagInput)
-	if err != nil {
-		log.Println("Got an error tagging the instance:")
-		log.Println(err)
-		return
+		return pasdata, fmt.Errorf("got an error creating an instance: %s", err)
 	}
 
 	instanceID := *result.Instances[0].InstanceId
@@ -140,12 +205,46 @@ func CreateInstanceCmd() {
 
 	log.Printf("INSTANCE ID: %s\nKEYPAIR ID: %s\n", instanceID, keypairID)
 
+	// We need image info to determine if it is windows or not
+	imageInfo, err := client.DescribeImages(context.TODO(), &ec2.DescribeImagesInput{
+		ImageIds: []string{*CLI.ami},
+	})
+	if err != nil {
+		log.Printf("WARN: could not retrieve AMI info: %s\n", err)
+	}
+
+	tagInput := &ec2.CreateTagsInput{
+		Resources: []string{instanceID},
+		Tags: []types.Tag{
+			{
+				Key:   CLI.name,
+				Value: CLI.value,
+			},
+		},
+	}
+
+	_, err = client.CreateTags(context.TODO(), tagInput)
+	if err != nil {
+		return pasdata, fmt.Errorf("got an error tagging the instance: %s", err.Error())
+	}
+
+	// Start populating pasdata
+	pasdata.Name = instanceID
+	pasdata.SafeName = *CLI.vaultsafename
+
 	// default for non-windows AMI's
-	user := "See <https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connection-prereqs.html>"
-	password := []byte("Use PEM Key")
+	pasdata.UserName = "ubuntu"
+	pasdata.PlatformID = "UnixSSHKeys"
+	pasdata.SecretType = "key"
+	pasdata.Secret = privKey
 
 	// Only call GetPasswordData if instance is a windows machine
 	if strings.EqualFold(string(imageInfo.Images[0].Platform), string(types.PlatformValuesWindows)) {
+
+		pasdata.UserName = "Administrator"
+		pasdata.PlatformID = "WinServerLocal"
+		pasdata.SecretType = "password"
+		pasdata.Secret = ""
 
 		log.Printf("Waiting for instance, %s, password data to become available.\n", instanceID)
 
@@ -164,30 +263,27 @@ func CreateInstanceCmd() {
 			})
 
 		if err != nil {
-			log.Printf("Unable to wait for password data available, %v\n", err)
-			return
+			return pasdata, fmt.Errorf("unable to wait for password data available, %v", err)
 		}
 
 		passwordData, err := client.GetPasswordData(context.TODO(), &ec2.GetPasswordDataInput{
 			InstanceId: &instanceID,
 		})
 		if err != nil {
-			log.Printf("ERROR: failed to get password data: %v\n", err)
-			return
+			return pasdata, fmt.Errorf("failed to get password data: %v", err)
 		}
 
 		if *passwordData.PasswordData == "" {
-			log.Println("Password not available yet.")
-			return
+			return pasdata, fmt.Errorf("password not available yet")
 		}
+
 		password_b64 := *passwordData.PasswordData
-		password = DecryptWithPrivateKey([]byte(password_b64), []byte(privKey))
-		if DEBUG {
-			log.Printf("Password fetched - (encoded/encrypted string) plaintext.: (%s) %s.\n", password_b64, string(password))
-		}
-		user = "Administrator (this is the default windows admin user)"
+		password := DecryptWithPrivateKey([]byte(password_b64), []byte(privKey))
+
+		pasdata.Secret = string(password)
 	}
 
+	// Describe the instance to get the public DNS
 	describe, err := client.DescribeInstances(context.TODO(), &ec2.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	})
@@ -199,7 +295,11 @@ func CreateInstanceCmd() {
 		instanceIP = *describe.Reservations[0].Instances[0].PublicIpAddress
 	}
 
-	log.Printf("InstanceID: %s\nInstanceDNS: %s\nInstanceIP: %s\nPassword: %s\nUser: %s\nPrivate PEM: %s\n", instanceID, instanceDNS, instanceIP, password, user, privKey)
+	log.Printf("InstanceID: %s\nInstanceDNS: %s\nInstanceIP: %s\nPassword: %s\nUser: %s\nPrivate PEM: %s\n", instanceID, instanceDNS, instanceIP, pasdata.Secret, pasdata.UserName, privKey)
+
+	pasdata.Address = instanceDNS
+
+	return pasdata, nil
 }
 
 func passwordDataAvailableStateRetryable(ctx context.Context, input *ec2.GetPasswordDataInput, output *ec2.GetPasswordDataOutput, err error) (bool, error) {
@@ -260,6 +360,184 @@ func DecryptWithPrivateKey(ciphertext []byte, priv []byte) []byte {
 	return dec
 }
 
+func (c *PASClient) GetSessionToken() (string, error) {
+	/*
+		Request:
+			POST https://PAS_SERVER/PasswordVault/API/auth/Cyberark/Logon/
+			{
+				"username":"<user_name>",
+				"password":"<password>"
+			}
+		Response:
+			"session token"
+	*/
+
+	url := fmt.Sprintf("%s/passwordvault/api/auth/Cyberark/Logon/", c.BaseURL)
+	client := GetHTTPClient()
+
+	var bodyReader io.ReadCloser
+
+	content := fmt.Sprintf(`{"username":"%s","password":"%s"}`, *CLI.vaultuser, *CLI.vaultpass)
+
+	bodyReader = io.NopCloser(bytes.NewReader([]byte(content)))
+
+	// create the request
+	req, err := http.NewRequest(http.MethodPost, url, bodyReader)
+	if err != nil {
+		return "", fmt.Errorf("failed to create new request. %s", err)
+	}
+
+	// attach the header
+	req.Header = make(http.Header)
+	req.Header.Add("Content-Type", "application/json")
+
+	// send request
+	res, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request. %s", err)
+	}
+
+	// read response body
+	body, error := io.ReadAll(res.Body)
+	if error != nil {
+		fmt.Println(error)
+	}
+	// close response body
+	res.Body.Close()
+
+	return trimQuotes(string(body)), nil
+}
+
+func trimQuotes(s string) string {
+	if len(s) >= 2 {
+		if s[0] == '"' && s[len(s)-1] == '"' {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
+}
+func AddVaultAccount(account *PASAddAccountInput) {
+	client := PASClient{
+		BaseURL:      *CLI.vaultbaseurl,
+		InsecureTLS:  true,
+		SessionToken: "",
+	}
+	token, err := client.GetSessionToken()
+	if err != nil {
+		log.Panicf("failed to get session token: %v", err)
+	}
+	client.SessionToken = token
+
+	log.Printf("PAS Session Token: %s\n", token)
+
+	apps, err := client.AddAccount(account)
+	if err != nil {
+		log.Fatalf("Failed to add account. %s", err)
+		return
+	}
+
+	PrintJSON(apps)
+}
+
+// PrintJSON will pretty print any data structure to a JSON blob
+func PrintJSON(obj interface{}) error {
+	json, err := json.MarshalIndent(obj, "", "    ")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(string(json))
+
+	return nil
+}
+func GetHTTPClient() *http.Client {
+	client := &http.Client{
+		Timeout: time.Second * 30,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+	return client
+}
+
+// AddAccount to cyberark vault
+func (c *PASClient) AddAccount(account *PASAddAccountInput) (*PASAddAccountOutput, error) {
+	url := fmt.Sprintf("%s/passwordvault/api/Accounts", c.BaseURL)
+	client := GetHTTPClient()
+
+	var bodyReader io.ReadCloser
+
+	content, err := json.Marshal(account)
+	if err != nil {
+		return &PASAddAccountOutput{}, err
+	}
+
+	bodyReader = io.NopCloser(bytes.NewReader(content))
+
+	// create the request
+	req, err := http.NewRequest(http.MethodPost, url, bodyReader)
+	if err != nil {
+		return &PASAddAccountOutput{}, fmt.Errorf("failed to create new request. %s", err)
+	}
+
+	// attach the header
+	req.Header = make(http.Header)
+	req.Header.Add("Content-Type", "application/json")
+	// if token is provided, add header Authorization
+	if c.SessionToken != "" {
+		req.Header.Add("Authorization", c.SessionToken)
+	}
+
+	// send request
+	log.Println("Add Account - sending request.")
+	res, err := client.Do(req)
+
+	if err != nil {
+		return &PASAddAccountOutput{}, fmt.Errorf("failed to send request. %s", err)
+	}
+
+	if res.StatusCode >= 300 {
+		return &PASAddAccountOutput{}, fmt.Errorf("received non-200 status code '%d'", res.StatusCode)
+	}
+
+	// read response body
+	body, error := io.ReadAll(res.Body)
+	if error != nil {
+		fmt.Println(error)
+	}
+	// close response body
+	res.Body.Close()
+	log.Printf("Response body after add account request: %s\n", string(body))
+	// Response body after add account request:
+	// {"categoryModificationTime":1689351272,
+	// "id":"30_11",
+	// "name":"i-0f3d81fab06726758",
+	// "address":"ec2-35-93-89-92.us-west-2.compute.amazonaws.com",
+	// "userName":"ubuntu",
+	// "platformId":"UnixSSHKeys",
+	// "safeName":"safe1",
+	// "secretType":
+	// "key","secretManagement":
+	// {"automaticManagementEnabled":true,
+	// "lastModifiedTime":1689351272},
+	// "createdTime":1689351272}
+
+	// jsonString, _ := json.Marshal(body)
+	GetAccountResponse := &PASAddAccountOutput{}
+	err = json.Unmarshal(body, GetAccountResponse)
+	return GetAccountResponse, err
+}
+
 func main() {
-	CreateInstanceCmd()
+	ParseParams()
+	result, err := CreateInstanceCmd()
+	if err != nil {
+		log.Printf("ERROR: could not create instance: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	log.Printf("RESULT:%+v\n", result)
+	AddVaultAccount(result)
 }
