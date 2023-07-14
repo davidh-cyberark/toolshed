@@ -2,11 +2,10 @@
 Title:    IT Tool Shed
 Author:   David Hisel <david.hisel@cyberark.com>
 Updated:  <2023-07-12 15:20:50 david.hisel>
-
 Comment:  The toolshed is an app to simulate the intake and provisioning
-of requests from application developers to IT staff to
-provision assets, and to show how to store credentials in 
-CyberArk PAS.
+          of requests from application developers to IT staff to
+          provision assets, and to show how to store credentials in
+          CyberArk PAS.
 ---
 
 ## IT Toolshed
