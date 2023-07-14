@@ -4,9 +4,9 @@ Author:   David Hisel <david.hisel@cyberark.com>
 Updated:  <2023-07-12 15:20:50 david.hisel>
 
 Comment:  The toolshed is an app to simulate the intake and provisioning
-          of requests from application developers to IT staff to
-		  provision assets, and to show how to store credentials in 
-		  CyberArk PAS.
+of requests from application developers to IT staff to
+provision assets, and to show how to store credentials in 
+CyberArk PAS.
 ---
 
 ## IT Toolshed
@@ -212,8 +212,9 @@ endnote
 
 ## NOTES
 
-https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServices/Add%20Account%20v10.htm?tocpath=Developer%7CREST%20APIs%7CAccounts%7C_____5
-https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServices/Implementing%20Privileged%20Account%20Security%20Web%20Services%20.htm?tocpath=Developer%7CREST%20APIs%7C_____0
+* [PAS Vault REST API doc](https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServices/Implementing%20Privileged%20Account%20Security%20Web%20Services%20.htm?tocpath=Developer%7CREST%20APIs%7C_____0)
+* [PAS Add Account](https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServices/Add%20Account%20v10.htm?tocpath=Developer%7CREST%20APIs%7CAccounts%7C_____5)
+
 * platform id: "winlocal"  # this goes into the json body
 * platform id: "unixssh" # this goes into the json body
 
@@ -228,6 +229,7 @@ https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServic
     "secret": "string"  # PEM Key contents, or windows raw plaintext
   }
   ```
+
 ### PAS Automation MVP diagram
 
 ```plantuml
