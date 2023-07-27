@@ -30,108 +30,102 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/cyberark/conjur-api-go/conjurapi"
+	"github.com/knadh/koanf/parsers/toml"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
 )
 
 var (
-	version = "dev"
-	DEBUG   = false
-	CLI     CLIparams
+	version    = "dev"
+	DEBUG      = false
+	CLI        CLIparams
+	CONF       = koanf.New(".")
+	CONFPARSER = toml.Parser()
 )
+
+func main() {
+	ParseParams() // command line params
+	LoadConfigs() // load config files
+
+	// Figure out which AWS creds to use
+	awscreds, err := GetAWSProviderCredentials()
+
+	// Provision the EC2 instance
+	result, err := CreateInstanceCmd(awscreds)
+	if err != nil {
+		log.Printf("ERROR: could not create instance: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	// Add the instance info to the PAS Vault safe
+	AddVaultAccount(result)
+}
+
+type ToolshedPASVaultConfig struct {
+	BaseURL  string `koanf:"baseurl"`
+	SafeName string `koanf:"safename"`
+	User     string `koanf:"user"`
+	Pass     string `koanf:"pass"`
+}
+
+type ToolshedConjurConfig struct {
+	APIURL                  string `koanf:"apiurl"`
+	Account                 string `koanf:"account"`
+	Identity                string `koanf:"identity"`
+	Authenticator           string `koanf:"authenticator"`
+	AWSRegion               string `koanf:"awsregion"`
+	AWSAccessKey            string `koanf:"awsaccesskey"`
+	AWSAccessSecret         string `koanf:"awsaccesssecret"`
+	AWSProviderAccessKey    string `koanf:"awsprovideraccesskeypath"`
+	AWSProviderAccessSecret string `koanf:"awsprovideraccesssecretpath"`
+}
+
+type AWSProviderCredentials struct {
+	Region       string `koanf:"region"`       // MUST ALWAYS BE SET
+	AccessKey    string `koanf:"accesskey"`    // do NOT set when using Conjur
+	AccessSecret string `koanf:"accesssecret"` // do NOT set when using Conjur
+}
 
 // CLIparams  Add CLI param fields here, and add processing of params to func ParseParams()
 type CLIparams struct {
-	tagname                   *string // AWS Tag name
-	tagvalue                  *string // AWS Tag value
-	keyname                   *string // AWS Keypair name to create
-	ami                       *string // AMI ID, ex: ami-1234567890
-	debug                     *bool   // print extra info to console
-	ver                       *bool   // Print Version and exit
-	vaultuser                 *string // PAS Vault User
-	vaultpass                 *string // PAS Vault Password
-	vaultbaseurl              *string // PAS API Base URL
-	vaultsafename             *string // PAS Vault Safe name
-	awsprovideraccesskey      *string // AWS Access Key
-	awsprovideraccesssecret   *string // AWS Access Secret
-	awsproviderregion         *string // AWS Region (used only with "awsprovider*" params)
-	conjurawsaccesskey        *string // AWS Access Key used to connect to Conjur
-	conjurawsaccesssecret     *string // AWS Access Secret used to connect to Conjur
-	conjurawsregion           *string // AWS Access Region used to connect to Conjur
-	conjurawsaccesskeypath    *string // Conjur path for AWS Access Key
-	conjurawsaccesssecretpath *string // Conjur path for AWS Access Secret
-	conjurapiurl              *string // Conjur API Url
-	conjuraccount             *string // Conjur account name, ex: "conjur"
-	conjurauthenticator       *string // Conjur authenticator, ex: "authn-iam/pas-automation"
-	conjuridentity            *string // "host/conjur/authn-iam/pas-automation/applications/475601244925/conjur-toolbox"
+	debug *bool // print extra info to console
+	ver   *bool // Print Version and exit
+
+	// User Provided Input
+	tagname  *string // AWS Tag name
+	tagvalue *string // AWS Tag value
+	keyname  *string // AWS Keypair name to create
+	ami      *string // AMI ID, ex: ami-1234567890
+
+	// Provision Engine Configurations
+	pasfile    *string // PAS Vault toml config file path
+	awsfile    *string // AWS Provider toml config file path
+	conjurfile *string // Conjur toml config file path
 }
 
 // ParseParams puts cmdline params into CLI var
-//
-// Usage
-//    In order for AWS to be able to create resources, there needs to be at least one set of AWS credentials configured that has permissions to create KeyPair, Add Tags and Run Instances.
-//
-//    This tool can be used to illustrate 3 scenarios:
-//    1. Configure aws-cli with AWS key/secret/region -- the AWS SDK looks for ~/.aws/credentials and ~/.aws/config if key/secret/region are not explicitly set
-//
-//    2. Pass AWS key/secret/region on the command line -- these creds need to be able to create resources
-//       -awsprovideraccesskey    "ABC123"
-//       -awsprovideraccesssecret "SECRET"
-//       -awsproviderregion       "us-west-2"
-//
-//    3. Use 2 AWS roles, the first to access Conjur using the AWS IAM Authenticator, and the second (1) stored in Conjur, and (2) has permissions to create resources
-//       -conjurawsaccesskey        "ABC123"
-//       -conjurawsaccesssecret     "SECRET"
-//       -conjurawsregion           "us-west-2"    ### Assume that resources will be created in this Region
-//       -conjurawsaccesskeypath    "data/vault/Toolbox-Test/Cloud Service-AWSAccessKeys-toolbox-test/AWSAccessKeyID"
-//       -conjurawsaccesssecretpath "data/vault/Toolbox-Test/Cloud Service-AWSAccessKeys-toolbox-test/password"
-
-//
-//       The AWS IAM Authenticator <https://docs.conjur.org/Latest/en/Content/Operations/Services/AWS_IAM_Authenticator.htm>
-
 func ParseParams() {
+	CLI.debug = flag.Bool("d", false, "Enable debug settings")
+	CLI.ver = flag.Bool("version", false, "Print version")
+
 	CLI.tagname = flag.String("n", "", "The name of the tag to attach to the instance")
 	CLI.tagvalue = flag.String("v", "", "The value of the tag to attach to the instance")
 	CLI.keyname = flag.String("k", "", "The name of the keypair to use")
 	CLI.ami = flag.String("a", "", "The AMI to use")
-	CLI.debug = flag.Bool("d", false, "Enable debug settings")
-	CLI.ver = flag.Bool("version", false, "Print version")
 
-	// PAS Vault
-	CLI.vaultuser = flag.String("vaultuser", "", "Vault username to use to create session token")
-	CLI.vaultpass = flag.String("vaultpass", "", "Vault user's password to use to create session token")
-	CLI.vaultbaseurl = flag.String("vaultbaseurl", "", "Vault base url, ex: https://example.com")
-	CLI.vaultsafename = flag.String("vaultsafename", "", "Vault safe name where to post the new account info")
+	CLI.pasfile = flag.String("pasconfig", "", "PAS Vault TOML config file path")
+	CLI.awsfile = flag.String("awsconfig", "", "AWS Provider creds TOML config file path")
+	CLI.conjurfile = flag.String("conjurconfig", "", "Conjur TOML config file path")
 
-	// (optional) AWS Provider creds
-	CLI.awsprovideraccesskey = flag.String("awsprovideraccesskey", "", "AWS Access Key -- with perms to create resources")
-	CLI.awsprovideraccesssecret = flag.String("awsprovideraccesssecret", "", "AWS Access Secret")
-	CLI.awsproviderregion = flag.String("awsproviderregion", "", "AWS Region")
-
-	// (Optional) Fetch AWS Provider creds from Conjur
-	CLI.conjurawsaccesskey = flag.String("conjurawsaccesskey", "", "AWS Access Key to connect to Conjur")
-	CLI.conjurawsaccesssecret = flag.String("conjurawsaccesssecret", "", "AWS Access Secret to connect to Conjur")
-	CLI.conjurawsregion = flag.String("conjurawsregion", "", "AWS Region to connect to Conjur")
-	CLI.conjurawsaccesskeypath = flag.String("conjurawsaccesskeypath", "", "Conjur Path for AWS Access Key")
-	CLI.conjurawsaccesssecretpath = flag.String("conjurawsaccesssecretpath", "", "Conjur Path for AWS Access Secret")
-	CLI.conjurapiurl = flag.String("conjurapiurl", "", "Conjur API Url")
-	CLI.conjuraccount = flag.String("conjuraccount", "", "Conjur account name, ex: \"conjur\"")
-	CLI.conjuridentity = flag.String("conjuridentity", "", "Conjur identity")
-	CLI.conjurauthenticator = flag.String("conjurauthenticator", "", "Conjur authenticator name")
 	flag.Parse()
 
 	DEBUG = *CLI.debug
-
 	if *CLI.ver {
 		log.Printf("Version: %s\n", version)
 		os.Exit(0)
 	}
 
 	msg := ""
-	if *CLI.vaultuser == "" || *CLI.vaultpass == "" || *CLI.vaultbaseurl == "" {
-		msg += "You must supply vault baseurl, user, pass (-vaultuser USER -vaultpas PASS -vaultbaseurl \"HTTPS://EXAMPLE.COM\")\n"
-	}
-	if *CLI.vaultsafename == "" {
-		msg += "You must supply vault safe name (-vaultsafename \"SAFENAME\")\n"
-	}
 	if *CLI.tagname == "" || *CLI.tagvalue == "" {
 		msg += "You must supply a name and value for the tag (-n NAME -v VALUE)\n"
 	}
@@ -147,12 +141,42 @@ func ParseParams() {
 	}
 }
 
+// LoadConfigs load config files
+func LoadConfigs() {
+
+	// REQUIRED - Fail if no PAS Config
+	if err := CONF.Load(file.Provider(*CLI.pasfile), CONFPARSER); err != nil {
+		log.Fatalf("error loading config: %v", err)
+	}
+
+	// REQUIRED - must set the AWS Region where resources will be created
+	if _, err := os.Stat(*CLI.awsfile); err == nil {
+		if err := CONF.Load(file.Provider(*CLI.awsfile), CONFPARSER); err != nil {
+			log.Fatalf("error loading config: %v", err)
+		}
+	} else {
+		log.Fatalf("error loading AWS config toml file")
+	}
+
+	// OPTIONAL - Conjur config
+	if _, err := os.Stat(*CLI.conjurfile); err == nil {
+		if err := CONF.Load(file.Provider(*CLI.conjurfile), CONFPARSER); err != nil {
+			log.Fatalf("error loading config: %v", err)
+		}
+	}
+}
+
+// ----------------------------------------
+// PASClient
+// ----------------------------------------
+
 // PASClient contains the data necessary for requests to pass successfully
 type PASClient struct {
 	BaseURL      string
 	AuthType     string
 	InsecureTLS  bool
 	SessionToken string
+	PASConfig    ToolshedPASVaultConfig
 }
 
 // PASAddAccountInput request used to create an account
@@ -181,7 +205,7 @@ type PASAddAccountOutput struct {
 	CreatedTime               int                 `json:"createdTime"`
 }
 
-// SecretManagement used in getting and setting accounts
+// PASSecretManagement used in getting and setting accounts
 type PASSecretManagement struct {
 	AutomaticManagementEnabled bool   `json:"automaticManagementEnabled"`
 	Status                     string `json:"status"`
@@ -189,44 +213,27 @@ type PASSecretManagement struct {
 	LastModifiedTime           int    `json:"lastModifiedTime,omitempty"`
 }
 
-type AWSProviderCredentials struct {
-	AccessKey    string
-	AccessSecret string
-	Region       string
-}
-
-// ConjurCreds stores credentials used to interact with Conjur
-type ConjurCreds struct {
-	AWSCreds                 *AWSProviderCredentials // AWS creds used to authenticate to Conjur
-	APIURL                   *string                 // Conjur appliance URL
-	Account                  *string                 // Conjur account
-	Authenticator            *string                 // Conjur authenticator name, ex "authn-iam/my-iam-conjur-policy-id"
-	Identity                 *string                 // Conjur identity, ex "host/conjur/authn-iam/pas-automation/applications/475601244925/conjur-toolbox"
-	ProviderAccessKeyPath    *string                 // Conjur path to AWS Provisioner Access key    (needs to be able to create resources)
-	ProviderAccessSecretPath *string                 // Conjur path to AWS Provisioner Access secret (needs to be able to create resources)
-}
-
 // GetProviderCredentials credentials to enable provider to provision resources
 func GetAWSProviderCredentials() (*AWSProviderCredentials, error) {
-	if *CLI.conjurapiurl != "" && *CLI.awsproviderregion != "" {
-		// assume all the other conjur vars are set
-		creds, err := GetAWSProviderCredentialsFromConjur()
-		creds.Region = *CLI.awsproviderregion // Provisioner region is different from Conjur AWS Region
+
+	// assume all the awsprovider vars are in CONF
+	awscreds := &AWSProviderCredentials{}
+	CONF.Unmarshal("awsprovider", awscreds)
+
+	// assume all the conjur vars are set in the Conjur configfile
+	if *CLI.conjurfile != "" {
+		creds, err := FetchAWSProviderCredsFromConjur()
+		creds.Region = awscreds.Region
+
+		// Provisioner region is different from Conjur AWS Region
 		return creds, err
 	}
 
-	if *CLI.awsprovideraccesskey != "" {
-		// assume all the awsprovider vars are set
-		creds := &AWSProviderCredentials{}
-		creds.AccessKey = *CLI.awsprovideraccesskey
-		creds.AccessSecret = *CLI.awsprovideraccesssecret
-		creds.Region = *CLI.awsproviderregion
-		return creds, nil
-	}
-
-	// Nothing explicit found, so, return nil to indicate we use ~/.aws/credentials
-	return nil, nil
+	return awscreds, nil
 }
+
+// ----------------------------------------
+// Handle provisioning of resources
 
 // CreateInstanceCmd provision New keypair and New AWS instance
 func CreateInstanceCmd(awscreds *AWSProviderCredentials) (*PASAddAccountInput, error) {
@@ -312,9 +319,12 @@ func CreateInstanceCmd(awscreds *AWSProviderCredentials) (*PASAddAccountInput, e
 		return pasdata, fmt.Errorf("got an error tagging the instance: %s", err.Error())
 	}
 
+	pasconf := &ToolshedPASVaultConfig{}
+	CONF.Unmarshal("pasvault", &pasconf)
+
 	// Start populating pasdata
 	pasdata.Name = instanceID
-	pasdata.SafeName = *CLI.vaultsafename
+	pasdata.SafeName = pasconf.SafeName
 
 	// default for non-windows AMI's
 	pasdata.UserName = "ubuntu"
@@ -386,16 +396,6 @@ func CreateInstanceCmd(awscreds *AWSProviderCredentials) (*PASAddAccountInput, e
 	return pasdata, nil
 }
 
-func passwordDataAvailableStateRetryable(ctx context.Context, input *ec2.GetPasswordDataInput, output *ec2.GetPasswordDataOutput, err error) (bool, error) {
-	if err == nil {
-		// is this retry-able?
-		if len(*output.PasswordData) == 0 {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // CreateKeyPair - create a keypair and return the private key
 // <https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/ec2-example-working-with-key-pairs.html>
 func CreateKeyPair(ec2client ec2.Client, pairName string) (string, string) {
@@ -461,7 +461,7 @@ func (c *PASClient) GetSessionToken() (string, error) {
 
 	var bodyReader io.ReadCloser
 
-	content := fmt.Sprintf(`{"username":"%s","password":"%s"}`, *CLI.vaultuser, *CLI.vaultpass)
+	content := fmt.Sprintf(`{"username":"%s","password":"%s"}`, c.PASConfig.User, c.PASConfig.Pass)
 
 	bodyReader = io.NopCloser(bytes.NewReader([]byte(content)))
 
@@ -484,7 +484,7 @@ func (c *PASClient) GetSessionToken() (string, error) {
 	// read response body
 	body, error := io.ReadAll(res.Body)
 	if error != nil {
-		fmt.Println(error)
+		log.Println(error)
 	}
 	// close response body
 	res.Body.Close()
@@ -492,19 +492,16 @@ func (c *PASClient) GetSessionToken() (string, error) {
 	return trimQuotes(string(body)), nil
 }
 
-func trimQuotes(s string) string {
-	if len(s) >= 2 {
-		if s[0] == '"' && s[len(s)-1] == '"' {
-			return s[1 : len(s)-1]
-		}
-	}
-	return s
-}
+// AddVaultAccount adds the AWS info into the PAS Vault safe
 func AddVaultAccount(account *PASAddAccountInput) {
+	var pasvault ToolshedPASVaultConfig
+	CONF.Unmarshal("pasvault", &pasvault)
+
 	client := PASClient{
-		BaseURL:      *CLI.vaultbaseurl,
+		BaseURL:      pasvault.BaseURL,
 		InsecureTLS:  true,
 		SessionToken: "",
+		PASConfig:    pasvault,
 	}
 	token, err := client.GetSessionToken()
 	if err != nil {
@@ -523,43 +520,17 @@ func AddVaultAccount(account *PASAddAccountInput) {
 	PrintJSON(apps)
 }
 
-// PrintJSON will pretty print any data structure to a JSON blob
-func PrintJSON(obj interface{}) error {
-	json, err := json.MarshalIndent(obj, "", "    ")
-	if err != nil {
-		return err
-	}
-
-	fmt.Println(string(json))
-
-	return nil
-}
-
-func GetHTTPClient() *http.Client {
-	client := &http.Client{
-		Timeout: time.Second * 30,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
-	}
-	return client
-}
-
-// AddAccount to cyberark vault
+// AddAccount to CyberArk PAS Vault
 func (c *PASClient) AddAccount(account *PASAddAccountInput) (*PASAddAccountOutput, error) {
 	url := fmt.Sprintf("%s/passwordvault/api/Accounts", c.BaseURL)
 	client := GetHTTPClient()
-
-	var bodyReader io.ReadCloser
 
 	content, err := json.Marshal(account)
 	if err != nil {
 		return &PASAddAccountOutput{}, err
 	}
 
-	bodyReader = io.NopCloser(bytes.NewReader(content))
+	bodyReader := io.NopCloser(bytes.NewReader(content))
 
 	// create the request
 	req, err := http.NewRequest(http.MethodPost, url, bodyReader)
@@ -590,10 +561,10 @@ func (c *PASClient) AddAccount(account *PASAddAccountInput) (*PASAddAccountOutpu
 	// read response body
 	body, error := io.ReadAll(res.Body)
 	if error != nil {
-		fmt.Println(error)
+		log.Println(error)
 	}
 	// close response body
-	res.Body.Close()
+	defer res.Body.Close()
 	log.Printf("Response body after add account request: %s\n", string(body))
 
 	GetAccountResponse := &PASAddAccountOutput{}
@@ -601,18 +572,8 @@ func (c *PASClient) AddAccount(account *PASAddAccountInput) (*PASAddAccountOutpu
 	return GetAccountResponse, err
 }
 
-func main() {
-	ParseParams()
-	awscreds, err := GetAWSProviderCredentials()
-	result, err := CreateInstanceCmd(awscreds)
-	if err != nil {
-		log.Printf("ERROR: could not create instance: %s\n", err.Error())
-		os.Exit(1)
-	}
-
-	log.Printf("RESULT:%+v\n", result)
-	AddVaultAccount(result)
-}
+// -----------------------------------------------------------
+// Fetch AWS creds from Conjur using "authn-iam" authenticator
 
 // ConjurAWSIAMAuth struct used to serialize to JSON and post-body to Conjur API /authenticate
 type ConjurAWSIAMAuth struct {
@@ -622,43 +583,20 @@ type ConjurAWSIAMAuth struct {
 	Host          string `json:"host"`
 }
 
-func errcheck(err error) {
-	if err == nil {
-		return
-	}
-	log.Panicf("error: %s", err)
-	os.Exit(1)
-}
+// FetchAWSProviderCredsFromConjur  fetch values from Conjur
+func FetchAWSProviderCredsFromConjur() (*AWSProviderCredentials, error) {
 
-func GetAWSProviderCredentialsFromConjur() (*AWSProviderCredentials, error) {
-	creds := &ConjurCreds{
-		AWSCreds: &AWSProviderCredentials{
-			AccessKey:    *CLI.conjurawsaccesskey,
-			AccessSecret: *CLI.conjurawsaccesssecret,
-			Region:       *CLI.conjurawsregion,
-		},
-		APIURL:                   CLI.conjurapiurl,
-		Account:                  CLI.conjuraccount,
-		Authenticator:            CLI.conjurauthenticator,
-		Identity:                 CLI.conjuridentity,
-		ProviderAccessKeyPath:    CLI.conjurawsaccesskeypath,
-		ProviderAccessSecretPath: CLI.conjurawsaccesssecretpath,
-	}
-	return FetchAWSProviderCredsFromConjur(creds)
-}
+	conjconf := &ToolshedConjurConfig{}
+	CONF.Unmarshal("conjur", conjconf)
 
-// FetchAWSProviderCredsFromConjur using limited scope access key/secret to create session
-// token for conjur, and then fetch values from conjur
-func FetchAWSProviderCredsFromConjur(conjurcreds *ConjurCreds) (*AWSProviderCredentials, error) {
+	conjuraccount := conjconf.Account
+	conjururl := conjconf.APIURL
+	conjauthenticator := conjconf.Authenticator
 
-	conjuraccount := *conjurcreds.Account           // "conjur"
-	conjururl := *conjurcreds.APIURL                // "https://cybr-secrets.secretsmgr.cyberark.cloud/api"
-	conjauthenticator := *conjurcreds.Authenticator // "authn-iam/pas-automation"
+	key1 := conjconf.AWSProviderAccessKey
+	key2 := conjconf.AWSProviderAccessSecret
 
-	key1 := *conjurcreds.ProviderAccessKeyPath    // "data/vault/Toolbox-Test/Cloud Service-AWSAccessKeys-toolbox-test/AWSAccessKeyID"
-	key2 := *conjurcreds.ProviderAccessSecretPath // "data/vault/Toolbox-Test/Cloud Service-AWSAccessKeys-toolbox-test/password"
-
-	awsregion := conjurcreds.AWSCreds.Region // "us-east-1" Which region is Conjur running in?
+	awsregion := conjconf.AWSRegion
 	awsservice := "sts"
 	awshost := fmt.Sprintf("%s.amazonaws.com", awsservice)
 	awspath := "/"
@@ -668,7 +606,7 @@ func FetchAWSProviderCredsFromConjur(conjurcreds *ConjurCreds) (*AWSProviderCred
 	awsurl := fmt.Sprintf("https://%s%s?%s", awshost, awspath, awsquery)
 
 	// These creds are used to connect to Conjur
-	awscredprovider := credentials.NewStaticCredentialsProvider(conjurcreds.AWSCreds.AccessKey, conjurcreds.AWSCreds.AccessSecret, "")
+	awscredprovider := credentials.NewStaticCredentialsProvider(conjconf.AWSAccessKey, conjconf.AWSAccessSecret, "")
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithCredentialsProvider(awscredprovider))
 	errcheck(err)
@@ -683,17 +621,19 @@ func FetchAWSProviderCredsFromConjur(conjurcreds *ConjurCreds) (*AWSProviderCred
 
 	if DEBUG {
 		c, err := json.Marshal(sesstokout)
-		fmt.Printf("STS TOK OUT: %+v\nEND STS TOK OUT\n", string(c))
+		log.Printf("STS TOK OUT: %+v\nEND STS TOK OUT\n", string(c))
 		errcheck(err)
 	}
 
 	req, reqerr := http.NewRequest(http.MethodGet, awsurl, nil)
 	errcheck(reqerr)
 
-	emptypayloadhashstring := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" // sha256sum of empty string
+	// sha256sum of empty string
+	emptypayloadhashstring := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 	// Conjur will use these creds to call IAM:GetCallerIdentity
-	// Note: MUST use the access key/secret from the response and NOT the original access key/secret
+	// Note: MUST use the access key/secret from the response and
+	//       NOT the original access key/secret
 	awscreds := aws.Credentials{
 		AccessKeyID:     *sesstokout.Credentials.AccessKeyId,
 		SecretAccessKey: *sesstokout.Credentials.SecretAccessKey,
@@ -714,16 +654,16 @@ func FetchAWSProviderCredsFromConjur(conjurcreds *ConjurCreds) (*AWSProviderCred
 	errcheck(rherr)
 
 	if DEBUG {
-		fmt.Printf("REQ HEADERS: %s\nEND REQ HEADERS\n", reqheadersjson)
+		log.Printf("REQ HEADERS: %s\nEND REQ HEADERS\n", reqheadersjson)
 	}
 
-	conjidentity := url.QueryEscape(*conjurcreds.Identity)
+	conjidentity := url.QueryEscape(conjconf.Identity)
 
 	// https://docs.conjur.org/Latest/en/Content/Developer/Conjur_API_Authenticate.htm
 	// POST /{authenticator}/{account}/{login}/authenticate
 	conjauthurl := fmt.Sprintf("%s/%s/%s/%s/authenticate", conjururl, conjauthenticator, conjuraccount, conjidentity)
 	if DEBUG {
-		fmt.Printf("CONJ AUTH URL: %s\nEND CONJ AUTH URL\n", conjauthurl)
+		log.Printf("CONJ AUTH URL: %s\nEND CONJ AUTH URL\n", conjauthurl)
 	}
 
 	// Conjur GO SDK does not support "authn-iam", yet, so, we make a direct REST call here
@@ -736,7 +676,7 @@ func FetchAWSProviderCredsFromConjur(conjurcreds *ConjurCreds) (*AWSProviderCred
 	resp, err := httpclient.Do(reqconj)
 	errcheck(err)
 	if DEBUG {
-		fmt.Printf("CONJAUTH RESPONSE: %d -- %s\nEND CONJAUTH RESPONSE\n", resp.StatusCode, resp.Status)
+		log.Printf("CONJAUTH RESPONSE: %d -- %s\nEND CONJAUTH RESPONSE\n", resp.StatusCode, resp.Status)
 	}
 	if resp.StatusCode >= 300 {
 		os.Exit(1)
@@ -744,7 +684,7 @@ func FetchAWSProviderCredsFromConjur(conjurcreds *ConjurCreds) (*AWSProviderCred
 	respconjbody, berr := io.ReadAll(resp.Body)
 	errcheck(berr)
 	if DEBUG {
-		fmt.Printf("CONJUR AUTH RESPONSE: %s\nEND CONJUR AUTH RESPONSE\n", respconjbody)
+		log.Printf("CONJUR AUTH RESPONSE: %s\nEND CONJUR AUTH RESPONSE\n", respconjbody)
 	}
 
 	defer resp.Body.Close()
@@ -764,14 +704,69 @@ func FetchAWSProviderCredsFromConjur(conjurcreds *ConjurCreds) (*AWSProviderCred
 	// Retrieve a secret into []byte.
 	awsproviderkey, err := conjur.RetrieveSecret(key1)
 	errcheck(err)
-	// fmt.Println("The secret value is: ", string(awsproviderkey))
+
 	awsprovidersecret, err := conjur.RetrieveSecret(key2)
 	errcheck(err)
-	// fmt.Println("The secret value is: ", string(awsprovidersecret))
+
 	providercreds := AWSProviderCredentials{
 		AccessKey:    string(awsproviderkey),
 		AccessSecret: string(awsprovidersecret),
 	}
 
 	return &providercreds, nil
+}
+
+// ----------------------------------------
+// Helper functions
+
+func trimQuotes(s string) string {
+	if len(s) >= 2 {
+		if s[0] == '"' && s[len(s)-1] == '"' {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
+}
+
+func errcheck(err error) {
+	if err == nil {
+		return
+	}
+	log.Panicf("error: %s", err)
+	os.Exit(1)
+}
+
+// helper function to determine if passdata call is retry-able
+func passwordDataAvailableStateRetryable(ctx context.Context, input *ec2.GetPasswordDataInput, output *ec2.GetPasswordDataOutput, err error) (bool, error) {
+	if err == nil {
+		// is this retry-able?
+		if len(*output.PasswordData) == 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// PrintJSON will pretty print any data structure to a JSON blob
+func PrintJSON(obj interface{}) error {
+	json, err := json.MarshalIndent(obj, "", "    ")
+	if err != nil {
+		return err
+	}
+
+	log.Println(string(json))
+
+	return nil
+}
+
+func GetHTTPClient() *http.Client {
+	client := &http.Client{
+		Timeout: time.Second * 30,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+	return client
 }

@@ -19,10 +19,10 @@ all: $(BINDIR)/toolshed $(BINDIR)/provengine | $(BINDIR)
 $(BINDIR):
 	mkdir -p $@
 
-$(BINDIR)/toolshed: ./cmd/toolshed/toolshed.go | $(BINDIR)
+$(BINDIR)/toolshed: VERSION ./cmd/toolshed/toolshed.go | $(BINDIR)
 	go build -o $@ $(LDFLAGS) ./cmd/toolshed
 
-$(BINDIR)/provengine: ./cmd/provengine/provengine.go | $(BINDIR)
+$(BINDIR)/provengine: VERSION ./cmd/provengine/provengine.go | $(BINDIR)
 	go build -o $@ $(LDFLAGS) ./cmd/provengine
 
 versionbump:

@@ -21,7 +21,10 @@
 go.work
 
 build/*
+.vscode/*
 *~
+*.bak
 
 README.html
 bin/*
+!bin/ex.sh

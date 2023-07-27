@@ -1,0 +1,193 @@
+<html>
+  <head>
+    <title>Toolshed</title>
+    {{.Head}}
+    <style>
+      .formbuilder-required {color:red;font-weight: bold;}
+      .message {background: lightgrey;}
+      .form-header {background: powderblue;}
+      .conjur-header {background: powderblue;}
+      .aws-provisioner-header {background: powderblue;}
+      .pas-vault-header {background: powderblue;}
+      .important-note {background: antiquewhite; color: red;line-height: 1.5;}
+  </style>  </head>
+  <body>
+      <div class="header">
+        <h1 access="false" id="control-9096361">Toolshed - Simulated ITSM App</h1>
+      </div>
+      {{if .Message}}
+      <div class="message">
+	<pre>{{.Message}}
+	</pre>
+      </div>
+      <br/>
+      {{end}}
+    <form action="/" method="POST">
+    <div class="rendered-form">
+      <div class="form-header">
+	Fields marked with a <span class="formbuilder-required">*</span> are required.
+      </div>
+      <br/>      
+      <div class="formbuilder-text form-group field-tag-name">
+        <label for="tag-name" class="formbuilder-text-label">
+          <span class="formbuilder-required">*</span> AWS TAG Name
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="tag-name" access="false" value="Name" id="tag-name" required="required" aria-required="true">
+      </div>
+      <div class="formbuilder-text form-group field-tag-value">
+        <label for="tag-value" class="formbuilder-text-label">
+          <span class="formbuilder-required">*</span> AWS TAG Value
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="tag-value" access="false" value="DEMO Instance" id="tag-value" required="required" aria-required="true">
+      </div>
+      <div class="formbuilder-text form-group field-tag-name">
+        <label for="tag-name" class="formbuilder-text-label">
+          <span class="formbuilder-required">*</span> AWS New Keypair Name
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="keypair-name" access="false" id="keypair-name" required="required" aria-required="true">
+      </div>
+      <div class="formbuilder-text form-group field-ami-name">
+        <label for="ami-name" class="formbuilder-text-label">
+          <span class="formbuilder-required">*</span>
+	  AMI Name (Example: Ubuntu AMI name is ami-03f65b8614a860c29)
+	</label><br/>
+        <input type="text" size="80" class="form-control" name="ami-name" access="false" value="ami-03f65b8614a860c29" id="ami-name" title="Example: Ubuntu AMI name is ami-03f65b8614a860c29" required="required" aria-required="true">
+      </div>
+      <br/>
+
+      <!-- PAS Vault Fields -->
+      <div class="pas-vault-header">
+	PAS Vault and Safe must already exist.
+      </div>
+      <div class="formbuilder-text form-group field-pas-vault-url">
+        <label for="pas-vault-url" class="formbuilder-text-label">
+	  <span class="formbuilder-required">*</span>
+	  PAS Vault URL (Example: https://mypasvault.example.com - no trailing slash)
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="pas-vault-url" access="false" id="pas-vault-url" title="Example: https://mypasvault.example.com" required="required" aria-required="true">
+      </div>
+      <div class="formbuilder-text form-group field-pas-vault-safe-name">
+	<label for="pas-vault-safe-name" class="formbuilder-text-label">
+	  <span class="formbuilder-required">*</span>
+	  PAS Vault Safe Name
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="pas-vault-safe-name" access="false" id="pas-vault-safe-name" required="required" aria-required="true">
+      </div>
+      <div class="formbuilder-text form-group field-pas-vault-user">
+	<label for="pas-vault-user" class="formbuilder-text-label">
+	  <span class="formbuilder-required">*</span>
+	  PAS Vault User
+	</label>
+	<br/><input type="text" size="80" class="form-control" name="pas-vault-user" access="false" id="pas-vault-user" required="required" aria-required="true">
+      </div>
+      <div class="formbuilder-text form-group field-pas-vault-password">
+	<label for="pas-vault-password" class="formbuilder-text-label">
+	  <span class="formbuilder-required">*</span>
+	  PAS Vault Password
+	</label>
+	<br/><input type="text" size="80" class="form-control" name="pas-vault-password" access="false" id="pas-vault-password" required="required" aria-required="true">
+      </div>
+      <br/>
+
+      <!-- AWS Provisioner Fields -->
+      <div class="aws-provisioner-header">
+	When using Conjur, ONLY fill out the "AWS Provisioner
+	Region."<br/>
+	<br/>
+      </div>
+
+      <div class="formbuilder-text form-group field-aws-provisioner-region">
+	<label for="aws-provisioner-region" class="formbuilder-text-label">
+	  <span class="formbuilder-required">*</span>
+	  AWS Provisioner Region (This is the region where the new EC2 instance will be created, example: us-west-2)
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="aws-provisioner-region" access="false" id="aws-provisioner-region"  required="required" aria-required="true">
+      </div>
+      <span class="important-note">
+	<b>IMPORTANT NOTE:</b><br/>
+	
+	When using <b>ONLY one set of AWS creds</b>, these factors
+	will be active<br/>
+
+	(1) Conjur will NOT be used, leave Conjur fields blank.<br/>
+
+	(2) These AWS creds will be used to provision resources.
+      </span>
+      
+      <div class="formbuilder-text form-group field-aws-provisioner-access-key">
+	<label for="aws-provisioner-access-key" class="formbuilder-text-label">
+	  AWS Provisioner Access Key <b>(Leave blank if fetching this from Conjur)</b>
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="aws-provisioner-access-key" access="false" id="aws-provisioner-access-key">
+      </div>
+      <div class="formbuilder-text form-group field-aws-provisioner-access-secret">
+	<label for="aws-provisioner-access-secret" class="formbuilder-text-label">
+	  AWS Provisioner Access Secret <b>(Leave blank if fetching this from Conjur)</b>
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="aws-provisioner-access-secret" access="false" id="aws-provisioner-access-secret">
+      </div>
+      <br/>
+
+      <!-- Conjur Fields -->
+      <div class="conjur-header">
+	When using Conjur, all conjur fields must be filled out.
+      </div>
+      <div class="formbuilder-text form-group field-conjur-url">
+	<label for="conjur-url" class="formbuilder-text-label">
+	  Conjur - URL (Conjur API Endpoint)
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="conjur-url" access="false" id="conjur-url" title="Conjur API Endpoint">
+      </div>
+      <div class="formbuilder-text form-group field-conjur-identity">
+	<label for="conjur-identity" class="formbuilder-text-label">
+	  Conjur - Identity (Example: host/conjur/authn-iam/pas-automation/applications/475601244925/conjur-toolbox)
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="conjur-identity" access="false" id="conjur-identity">
+      </div>
+      <div class="formbuilder-text form-group field-conjur-account">
+	<label for="conjur-account" class="formbuilder-text-label">
+	  Conjur - Account (Conjur account, example: conjur)
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="conjur-account" access="false" value="conjur" id="conjur-account" title="Conjur account, example: conjur">
+      </div>
+      <div class="formbuilder-text form-group field-conjur-authenticator">
+	<label for="conjur-authenticator" class="formbuilder-text-label">
+	  Conjur - Authenticator (Example: authn-iam/pas-automation.  The AWS IAM Authenticator, REF: https://docs.conjur.org/Latest/en/Content/Operations/Services/AWS_IAM_Authenticator.htm
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="conjur-authenticator" access="false" id="conjur-authenticator" title="Conjur Authenticator, example: authn-iam/pas-automation.  The AWS IAM Authenticator, REF: https://docs.conjur.org/Latest/en/Content/Operations/Services/AWS_IAM_Authenticator.htm">
+      </div>
+      <div class="formbuilder-text form-group field-conjur-aws-region">
+	<label for="conjur-aws-region" class="formbuilder-text-label">
+	  Conjur - AWS Region (Which region is Conjur in? Example: us-east-1)
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="conjur-aws-region" access="false" id="conjur-aws-region">
+      </div>
+      <div class="formbuilder-text form-group field-conjur-aws-access-key">
+	<label for="conjur-aws-access-key" class="formbuilder-text-label">
+	  Conjur - AWS IAM Access Key (Key used for connecting with Conjur Authn-IAM connector, this is separate from the provider/provisioner access key)	  
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="conjur-aws-access-key" access="false" id="conjur-aws-access-key">
+      </div>
+      <div class="formbuilder-text form-group field-conjur-aws-access-secret">
+	<label for="conjur-aws-access-secret" class="formbuilder-text-label">
+	  Conjur - AWS IAM Access Secret (Key used for connecting with Conjur Authn-IAM connector, this is separate from the provider/provisioner access secret)	  
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="conjur-aws-access-secret" access="false" id="conjur-aws-access-secret">
+      </div>
+      <div class="formbuilder-text form-group field-conjur-path-aws-access-key">
+	<label for="conjur-path-aws-access-key" class="formbuilder-text-label">
+	  Conjur - Path to AWS Provider Access Key (Must have permissions to create resources)
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="conjur-path-aws-access-key" access="false" id="conjur-path-aws-access-key">
+      </div>
+      <div class="formbuilder-text form-group field-conjur-path-aws-access-secret">
+	<label for="conjur-path-aws-access-secret" class="formbuilder-text-label">
+	  Conjur - Path to AWS Provider Access Secret (Must have permissions to create resources)
+	</label><br/>
+	<input type="text" size="80" class="form-control" name="conjur-path-aws-access-secret" access="false" id="conjur-path-aws-access-secret" title="Conjur - Path to AWS Provider Access Secret">
+      </div>
+    </div>
+    <input type="submit" name="submit" value="Submit">
+    </form>
+  </body>
+</html>
