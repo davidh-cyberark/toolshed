@@ -44,75 +44,24 @@ func MarshalProvengineArgs(pargs []string, w http.ResponseWriter, r *http.Reques
 
 	args := pargs
 
-	//1
 	if DEBUG {
 		args = append(args, "-d")
 	}
 
-	// Map form fields into provengine cmdline params
-
-	// KEY: tag-name, VAL [Name]
-	// KEY: tag-value, VAL [DEMO Instance]
-	// KEY: ami-name, VAL [ami-03f65b8614a860c29]
-	// KEY: keypair-name, VAL [asdfads]
-	// -n "Name"
-	// -v "PROVENGINE - demo(Ubuntu)"
-	// -k "davidh_ubuntu-demo-${RANDOM}-${RANDOM}-${RANDOM}-${RANDOM}"
-	// -a "ami-03f65b8614a860c29"
-
-	//4
 	args = append(args, "-n", AddQuotes(r.FormValue("tag-name")))
 	args = append(args, "-v", AddQuotes(r.FormValue("tag-value")))
 	args = append(args, "-k", AddQuotes(r.FormValue("keypair-name")))
 	args = append(args, "-a", AddQuotes(r.FormValue("ami-name")))
 
-	// KEY: aws-provisioner-region, VAL [asdfasdfasd]
-	// KEY: aws-provisioner-access-key, VAL []
-	// KEY: aws-provisioner-access-secret, VAL []
-	// -awsproviderregion "us-west-2"
-	// -awsprovideraccesskey ""
-	// -awsprovideraccesssecret ""
-	//3
 	args = append(args, "-awsproviderregion", AddQuotes(r.FormValue("aws-provisioner-region")))
 	args = append(args, "-awsprovideraccesskey", AddQuotes(r.FormValue("aws-provisioner-access-key")))
 	args = append(args, "-awsprovideraccesssecret", AddQuotes(r.FormValue("aws-provisioner-access-secret")))
 
-	// KEY: pas-vault-url, VAL [asdf]
-	// KEY: pas-vault-safe-name, VAL [adf]
-	// KEY: pas-vault-user, VAL [adsf]
-	// KEY: pas-vault-password, VAL [adsf]
-	// -vaultbaseurl "https://ec2-13-57-108-26.us-west-1.compute.amazonaws.com"
-	// -vaultsafename "safe1"
-	// -vaultuser 'Administrator'
-	// -vaultpass 'CyberArk11@@'
-
-	//4
 	args = append(args, "-vaultbaseurl", AddQuotes(r.FormValue("pas-vault-url")))
 	args = append(args, "-vaultsafename", AddQuotes(r.FormValue("pas-vault-safe-name")))
 	args = append(args, "-vaultuser", AddQuotes(r.FormValue("pas-vault-user")))
 	args = append(args, "-vaultpass", AddQuotes(r.FormValue("pas-vault-password")))
 
-	// KEY: conjur-url
-	// KEY: conjur-authenticator
-	// KEY: conjur-account
-	// KEY: conjur-identity
-	// KEY: conjur-aws-region
-	// KEY: conjur-aws-access-secret
-	// KEY: conjur-aws-access-key
-	// KEY: conjur-path-aws-access-key
-	// KEY: conjur-path-aws-access-secret
-
-	// -conjurawsaccesskey        "AKIAW5PALCL62OFHJIRE"
-	// -conjurawsaccesssecret     "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"
-	// -conjurawsregion           "us-east-1"
-	// -conjuridentity            "host/c"
-	// -conjurawsaccesskeypath    "data/vault/Toolb"
-	// -conjurawsaccesssecretpath "data/vault/Tool"
-	// -conjurapiurl              "https://cybr-secr"
-	// -conjuraccount             "conjur"
-	// -conjurauthenticator       "authn-iam/pas-automation"
-
-	//9
 	args = append(args, "-conjurawsaccesskey", AddQuotes(r.FormValue("conjur-url")))
 	args = append(args, "-conjurawsaccesssecret", AddQuotes(r.FormValue("conjur-authenticator")))
 	args = append(args, "-conjurawsregion", AddQuotes(r.FormValue("conjur-account")))
