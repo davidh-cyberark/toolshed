@@ -58,3 +58,14 @@ vardump:
 	@echo "NPMDIR: $(NPMDIR)"
 	@echo "PLANTUML_DL_URL: $(PLANTUML_DL_URL)"
 	@echo "LDFLAGS: $(LDFLAGS)"
+
+.PHONY: run-config run run-debug
+run-config:
+	cp cmd/toolshed/index.html bin/index.html
+	cp cmd/provengine/*.toml bin/
+
+run: $(BINDIR)/toolshed  $(BINDIR)/provengine  | run-config
+	(cd ./bin && ./toolshed)
+
+run-debug: $(BINDIR)/toolshed  $(BINDIR)/provengine  | run-config
+	(cd ./bin && ./toolshed -d)

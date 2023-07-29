@@ -1,0 +1,10 @@
+[awsprovider]
+
+# REQUIRED
+# Set this to your Target Region where you will provision your EC2 instance
+region = "us-west-2"
+
+# OPTIONAL
+# Leave these blank if using Conjur
+accesskey = ""
+accesssecret = ""

@@ -28,3 +28,6 @@ build/*
 README.html
 bin/*
 !bin/ex.sh
+cmd/provengine/pasconfig.toml
+cmd/provengine/awsconfig.toml
+cmd/provengine/conjurconfig.toml

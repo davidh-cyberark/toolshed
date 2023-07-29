@@ -1,0 +1,8 @@
+[pasvault]
+
+baseurl = "https://mypasserver.example.com"
+safename = "safe1"
+
+# User must be able to create account
+user = 'MYUSER' 
+pass = 'MYPASSWORD'

@@ -1,0 +1,21 @@
+[conjur]
+apiurl              = "https://conjurserver.example.com/api"
+account             = "conjur"
+
+# Example: "host/conjur/authn-iam/MYAPPNAME/applications/abc123/toolshed-user"
+identity            = ""
+
+# use "authn-iam/" as the base
+authenticator       = "authn-iam/APPNAME"
+
+# Conjur Region -- used for authn-iam (Region where Conjur is running)
+awsregion           = "us-east-1"
+
+# Conjur IAM auth creds -- AWS key/secret used for authn-iam (not the same as the provisioner creds)
+awsaccesskey        = ""
+awsaccesssecret     = ""
+
+# Conjur path to AWS key/secret used to provision resources
+awsprovideraccesskeypath    = "data/vault/PATH/TO/THE/AWSProviderAccessKey"
+awsprovideraccesssecretpath = "data/vault/PATH/TO/THE/AWSProviderAccessSecret"
+

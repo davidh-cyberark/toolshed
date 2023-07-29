@@ -16,22 +16,30 @@ import (
 
 var (
 	DEBUG bool
-	EX    bool
+	EX    string
 	CMD   ToolshedCommand
 )
 
 type ToolshedCommand struct {
-	Command   *exec.Cmd
-	StdoutBuf bytes.Buffer
-	StderrBuf bytes.Buffer
-	Started   bool
-	Running   bool
-	Err       error
+	Command         *exec.Cmd
+	StdoutBuf       bytes.Buffer
+	StderrBuf       bytes.Buffer
+	Started         bool
+	Running         bool
+	Err             error
+	ProvisionFields ProvisionFields
 }
 
 type Page struct {
 	Message string
 	Head    string
+	Fields  ProvisionFields
+}
+type ProvisionFields struct {
+	TagName  string
+	TagValue string
+	KeyPair  string
+	AMI      string
 }
 
 func AddQuotes(s string) string {
@@ -42,42 +50,30 @@ func MarshalProvengineArgs(pargs []string, w http.ResponseWriter, r *http.Reques
 		return nil
 	}
 
+	CMD.ProvisionFields.TagName = r.FormValue("tag-name")
+	CMD.ProvisionFields.TagValue = r.FormValue("tag-value")
+	CMD.ProvisionFields.KeyPair = r.FormValue("keypair-name")
+	CMD.ProvisionFields.AMI = r.FormValue("ami-name")
+
 	args := pargs
 
 	if DEBUG {
 		args = append(args, "-d")
 	}
 
-	args = append(args, "-n", AddQuotes(r.FormValue("tag-name")))
-	args = append(args, "-v", AddQuotes(r.FormValue("tag-value")))
-	args = append(args, "-k", AddQuotes(r.FormValue("keypair-name")))
-	args = append(args, "-a", AddQuotes(r.FormValue("ami-name")))
-
-	args = append(args, "-awsproviderregion", AddQuotes(r.FormValue("aws-provisioner-region")))
-	args = append(args, "-awsprovideraccesskey", AddQuotes(r.FormValue("aws-provisioner-access-key")))
-	args = append(args, "-awsprovideraccesssecret", AddQuotes(r.FormValue("aws-provisioner-access-secret")))
-
-	args = append(args, "-vaultbaseurl", AddQuotes(r.FormValue("pas-vault-url")))
-	args = append(args, "-vaultsafename", AddQuotes(r.FormValue("pas-vault-safe-name")))
-	args = append(args, "-vaultuser", AddQuotes(r.FormValue("pas-vault-user")))
-	args = append(args, "-vaultpass", AddQuotes(r.FormValue("pas-vault-password")))
-
-	args = append(args, "-conjurawsaccesskey", AddQuotes(r.FormValue("conjur-url")))
-	args = append(args, "-conjurawsaccesssecret", AddQuotes(r.FormValue("conjur-authenticator")))
-	args = append(args, "-conjurawsregion", AddQuotes(r.FormValue("conjur-account")))
-	args = append(args, "-conjuridentity", AddQuotes(r.FormValue("conjur-identity")))
-	args = append(args, "-conjurawsaccesskeypath", AddQuotes(r.FormValue("conjur-aws-region")))
-	args = append(args, "-conjurawsaccesssecretpath", AddQuotes(r.FormValue("conjur-aws-access-secret")))
-	args = append(args, "-conjurapiurl", AddQuotes(r.FormValue("conjur-aws-access-key")))
-	args = append(args, "-conjuraccount", AddQuotes(r.FormValue("conjur-path-aws-access-key")))
-	args = append(args, "-conjurauthenticator", AddQuotes(r.FormValue("conjur-path-aws-access-secret")))
+	args = append(args, "-n", CMD.ProvisionFields.TagName)
+	args = append(args, "-v", CMD.ProvisionFields.TagValue)
+	args = append(args, "-k", CMD.ProvisionFields.KeyPair)
+	args = append(args, "-a", CMD.ProvisionFields.AMI)
 
 	return args
 }
 
 func RunProvisionCommand(w http.ResponseWriter, r *http.Request) bool {
-	//provengine := "../../bin/provengine"
-	cmdline := "../../bin/ex.sh"
+	cmdline := "./provengine"
+	if EX != "" {
+		cmdline = EX // "../../bin/ex.sh"
+	}
 
 	cmdpath, cerr := filepath.Abs(cmdline)
 	if cerr != nil {
@@ -131,6 +127,8 @@ func (c ToolshedCommand) String() string {
 		return msg
 	}
 
+	msg = "Process is running...please wait for current process to finish.\n"
+
 	cmdStdOut, cmdStdErr := CMD.StdoutBuf.String(), CMD.StderrBuf.String()
 	msg += fmt.Sprintf("PID: %d\nSTDOUT: %s\nSTDERR: %s\n", CMD.Command.Process.Pid, cmdStdOut, cmdStdErr)
 
@@ -172,13 +170,14 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		data.Head = "<meta http-equiv=\"refresh\" content=\"1\">"
 	}
 
+	data.Fields = CMD.ProvisionFields
 	tmpl := template.Must(template.ParseFiles("index.html"))
 	tmpl.Execute(w, data)
 }
 
 func main() {
 	debug := flag.Bool("d", false, "Enable debug settings")
-	ex := flag.Bool("x", false, "Use ex.sh script for testing")
+	ex := flag.String("x", "", "Use specified script for testing")
 	flag.Parse()
 	DEBUG = *debug
 	EX = *ex

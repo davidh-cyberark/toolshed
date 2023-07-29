@@ -36,15 +36,20 @@ import (
 )
 
 var (
-	version    = "dev"
-	DEBUG      = false
-	CLI        CLIparams
-	CONF       = koanf.New(".")
-	CONFPARSER = toml.Parser()
+	version     = "dev"
+	DEBUG       = false
+	CLI         CLIparams
+	CONF        = koanf.New(".")
+	CONFPARSER  = toml.Parser()
+	DebugLogger *log.Logger
 )
 
 func main() {
 	ParseParams() // command line params
+	DebugLogger = log.New(os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)
+	if !DEBUG {
+		DebugLogger.SetOutput(io.Discard) // turn off debug output
+	}
 	LoadConfigs() // load config files
 
 	// Figure out which AWS creds to use
@@ -53,8 +58,7 @@ func main() {
 	// Provision the EC2 instance
 	result, err := CreateInstanceCmd(awscreds)
 	if err != nil {
-		log.Printf("ERROR: could not create instance: %s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("ERROR: could not create instance: %s\n", err.Error())
 	}
 
 	// Add the instance info to the PAS Vault safe
@@ -113,9 +117,9 @@ func ParseParams() {
 	CLI.keyname = flag.String("k", "", "The name of the keypair to use")
 	CLI.ami = flag.String("a", "", "The AMI to use")
 
-	CLI.pasfile = flag.String("pasconfig", "", "PAS Vault TOML config file path")
-	CLI.awsfile = flag.String("awsconfig", "", "AWS Provider creds TOML config file path")
-	CLI.conjurfile = flag.String("conjurconfig", "", "Conjur TOML config file path")
+	CLI.pasfile = flag.String("pasconfig", "pasconfig.toml", "PAS Vault TOML config file, default is 'pasconfig.toml'")
+	CLI.awsfile = flag.String("awsconfig", "awsconfig.toml", "AWS Provider creds TOML config file, default is 'awsconfig.toml'")
+	CLI.conjurfile = flag.String("conjurconfig", "conjurconfig.toml", "Conjur TOML config file, default is 'conjurconfig.toml'")
 
 	flag.Parse()
 
@@ -136,8 +140,7 @@ func ParseParams() {
 		msg += "You must supply an AMI name (-a AMI-NAME), ex: -a \"ami-05cc83e573412838f\"\n"
 	}
 	if len(msg) > 0 {
-		log.Printf("%s\n", msg)
-		os.Exit(1)
+		log.Fatalf("%s\n", msg)
 	}
 }
 
@@ -146,22 +149,21 @@ func LoadConfigs() {
 
 	// REQUIRED - Fail if no PAS Config
 	if err := CONF.Load(file.Provider(*CLI.pasfile), CONFPARSER); err != nil {
-		log.Fatalf("error loading config: %v", err)
+		log.Fatalf("error loading PAS config: %v", err)
 	}
 
 	// REQUIRED - must set the AWS Region where resources will be created
-	if _, err := os.Stat(*CLI.awsfile); err == nil {
-		if err := CONF.Load(file.Provider(*CLI.awsfile), CONFPARSER); err != nil {
-			log.Fatalf("error loading config: %v", err)
-		}
-	} else {
-		log.Fatalf("error loading AWS config toml file")
+	if _, err := os.Stat(*CLI.awsfile); err != nil {
+		log.Fatalf("error with AWS config toml file: %v", err)
+	}
+	if err := CONF.Load(file.Provider(*CLI.awsfile), CONFPARSER); err != nil {
+		log.Fatalf("error loading AWS config: %v", err)
 	}
 
 	// OPTIONAL - Conjur config
 	if _, err := os.Stat(*CLI.conjurfile); err == nil {
 		if err := CONF.Load(file.Provider(*CLI.conjurfile), CONFPARSER); err != nil {
-			log.Fatalf("error loading config: %v", err)
+			log.Fatalf("error loading Conjur config: %v", err)
 		}
 	}
 }
@@ -294,7 +296,7 @@ func CreateInstanceCmd(awscreds *AWSProviderCredentials) (*PASAddAccountInput, e
 	instanceDNS := *result.Instances[0].PrivateDnsName
 	instanceIP := *result.Instances[0].PrivateIpAddress
 
-	log.Printf("INSTANCE ID: %s\nKEYPAIR ID: %s\n", instanceID, keypairID)
+	DebugLogger.Printf("INSTANCE ID: %s\nKEYPAIR ID: %s\n", instanceID, keypairID)
 
 	// We need image info to determine if it is windows or not
 	imageInfo, err := client.DescribeImages(context.TODO(), &ec2.DescribeImagesInput{
@@ -389,7 +391,7 @@ func CreateInstanceCmd(awscreds *AWSProviderCredentials) (*PASAddAccountInput, e
 		instanceIP = *describe.Reservations[0].Instances[0].PublicIpAddress
 	}
 
-	log.Printf("InstanceID: %s\nInstanceDNS: %s\nInstanceIP: %s\nPassword: %s\nUser: %s\nPrivate PEM: %s\n", instanceID, instanceDNS, instanceIP, pasdata.Secret, pasdata.UserName, privKey)
+	DebugLogger.Printf("InstanceID: %s\nInstanceDNS: %s\nInstanceIP: %s\nPassword: %s\nUser: %s\nPrivate PEM: %s\n", instanceID, instanceDNS, instanceIP, pasdata.Secret, pasdata.UserName, privKey)
 
 	pasdata.Address = instanceDNS
 
@@ -408,7 +410,7 @@ func CreateKeyPair(ec2client ec2.Client, pairName string) (string, string) {
 		return "", ""
 	}
 
-	log.Printf("Created key pair %q %s\n%s\n",
+	DebugLogger.Printf("Created key pair %q %s\n%s\n",
 		*result.KeyName,
 		*result.KeyFingerprint,
 		*result.KeyMaterial)
@@ -509,12 +511,11 @@ func AddVaultAccount(account *PASAddAccountInput) {
 	}
 	client.SessionToken = token
 
-	log.Printf("PAS Session Token: %s\n", token)
+	DebugLogger.Printf("PAS Session Token: %s\n", token)
 
 	apps, err := client.AddAccount(account)
 	if err != nil {
 		log.Fatalf("Failed to add account. %s", err)
-		return
 	}
 
 	PrintJSON(apps)
@@ -565,7 +566,7 @@ func (c *PASClient) AddAccount(account *PASAddAccountInput) (*PASAddAccountOutpu
 	}
 	// close response body
 	defer res.Body.Close()
-	log.Printf("Response body after add account request: %s\n", string(body))
+	DebugLogger.Printf("Response body after add account request: %s\n", string(body))
 
 	GetAccountResponse := &PASAddAccountOutput{}
 	err = json.Unmarshal(body, GetAccountResponse)
@@ -621,8 +622,11 @@ func FetchAWSProviderCredsFromConjur() (*AWSProviderCredentials, error) {
 
 	if DEBUG {
 		c, err := json.Marshal(sesstokout)
-		log.Printf("STS TOK OUT: %+v\nEND STS TOK OUT\n", string(c))
+		if err == nil {
+			DebugLogger.Printf("STS TOK OUT: %+v\nEND STS TOK OUT\n", string(c))
+		}
 		errcheck(err)
+
 	}
 
 	req, reqerr := http.NewRequest(http.MethodGet, awsurl, nil)
@@ -653,18 +657,15 @@ func FetchAWSProviderCredsFromConjur() (*AWSProviderCredentials, error) {
 	reqheadersjson, rherr := json.Marshal(reqstruct)
 	errcheck(rherr)
 
-	if DEBUG {
-		log.Printf("REQ HEADERS: %s\nEND REQ HEADERS\n", reqheadersjson)
-	}
+	DebugLogger.Printf("REQ HEADERS: %s\nEND REQ HEADERS\n", reqheadersjson)
 
 	conjidentity := url.QueryEscape(conjconf.Identity)
 
 	// https://docs.conjur.org/Latest/en/Content/Developer/Conjur_API_Authenticate.htm
 	// POST /{authenticator}/{account}/{login}/authenticate
 	conjauthurl := fmt.Sprintf("%s/%s/%s/%s/authenticate", conjururl, conjauthenticator, conjuraccount, conjidentity)
-	if DEBUG {
-		log.Printf("CONJ AUTH URL: %s\nEND CONJ AUTH URL\n", conjauthurl)
-	}
+
+	DebugLogger.Printf("CONJ AUTH URL: %s\nEND CONJ AUTH URL\n", conjauthurl)
 
 	// Conjur GO SDK does not support "authn-iam", yet, so, we make a direct REST call here
 	reqconj, rcerr := http.NewRequest(http.MethodPost, conjauthurl, bytes.NewBuffer(reqheadersjson))
@@ -675,19 +676,17 @@ func FetchAWSProviderCredsFromConjur() (*AWSProviderCredentials, error) {
 	httpclient := &http.Client{}
 	resp, err := httpclient.Do(reqconj)
 	errcheck(err)
-	if DEBUG {
-		log.Printf("CONJAUTH RESPONSE: %d -- %s\nEND CONJAUTH RESPONSE\n", resp.StatusCode, resp.Status)
-	}
+
+	DebugLogger.Printf("CONJAUTH RESPONSE: %d -- %s\nEND CONJAUTH RESPONSE\n", resp.StatusCode, resp.Status)
+
 	if resp.StatusCode >= 300 {
 		os.Exit(1)
 	}
 	respconjbody, berr := io.ReadAll(resp.Body)
 	errcheck(berr)
-	if DEBUG {
-		log.Printf("CONJUR AUTH RESPONSE: %s\nEND CONJUR AUTH RESPONSE\n", respconjbody)
-	}
-
 	defer resp.Body.Close()
+
+	DebugLogger.Printf("CONJUR AUTH RESPONSE: %s\nEND CONJUR AUTH RESPONSE\n", respconjbody)
 
 	// At this point we should have a Conjur session token we can use to fetch the creds
 	conjtoken, decerr := b64.StdEncoding.DecodeString(string(respconjbody))
@@ -732,8 +731,7 @@ func errcheck(err error) {
 	if err == nil {
 		return
 	}
-	log.Panicf("error: %s", err)
-	os.Exit(1)
+	log.Fatalf("error: %s", err)
 }
 
 // helper function to determine if passdata call is retry-able
@@ -759,6 +757,7 @@ func PrintJSON(obj interface{}) error {
 	return nil
 }
 
+// GetHTTPClient create http client for HTTPS
 func GetHTTPClient() *http.Client {
 	client := &http.Client{
 		Timeout: time.Second * 30,
