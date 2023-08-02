@@ -222,15 +222,29 @@ func GetAWSProviderCredentials() (*AWSProviderCredentials, error) {
 	awscreds := &AWSProviderCredentials{}
 	CONF.Unmarshal("awsprovider", awscreds)
 
+	if awscreds.Region != "" && awscreds.AccessKey != "" && awscreds.AccessSecret != "" {
+		return awscreds, nil
+	}
+
 	// assume all the conjur vars are set in the Conjur configfile
 	if *CLI.conjurfile != "" {
 		creds, err := FetchAWSProviderCredsFromConjur()
-		creds.Region = awscreds.Region
-
-		// Provisioner region is different from Conjur AWS Region
-		return creds, err
+		if err != nil {
+			log.Fatalf("failed to fetch creds from Conjur: %s", err.Error())
+		}
+		awscreds.AccessKey = creds.AccessKey
+		awscreds.AccessSecret = creds.AccessSecret
 	}
 
+	if awscreds.Region == "" {
+		log.Fatalf("missing AWS credentials Region")
+	}
+	if awscreds.AccessKey == "" {
+		log.Fatalf("missing AWS credentials AccessKey")
+	}
+	if awscreds.AccessSecret == "" {
+		log.Fatalf("missing AWS credentials AccessSecret")
+	}
 	return awscreds, nil
 }
 
