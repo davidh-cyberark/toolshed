@@ -8,6 +8,8 @@ BINDIR = ./bin
 TOOLDIR = ./tools
 
 PLANTUML_DL_URL = https://github.com/plantuml/plantuml/releases/download/v1.2023.9/plantuml.jar
+PLANTUML_JAR =  $(BINDIR)/plantuml.jar
+
 NPMDIR = $(shell npm root)
 VERSION = $(shell cat VERSION)
 NEXTVERSION = $(shell echo "$(VERSION)" | awk -F. '{print $$1"."$$2"."$$3+1}')
@@ -28,24 +30,29 @@ $(BINDIR)/provengine: VERSION ./cmd/provengine/provengine.go | $(BINDIR)
 versionbump:
 	echo "$(VERSION)" | awk -F. '{print $$1"."$$2"."$$3+1}' > VERSION
 
-docs: README.html
-
-markdown-it:
+$(PLANTUML_JAR):
 	curl -sLJO $(PLANTUML_DL_URL) -o plantuml.jar
-	mv plantuml.jar $(BINDIR)/plantuml.jar
-	npm install markdown-it --save
-	npm install markdown-it-cli --save
-	npm install markdown-it-meta-header --save
-	npm install markdown-it-plantuml-ex --save
-	echo "NPMDIR - $(NPMDIR)"
-	cp $(BINDIR)/plantuml.jar $(NPMDIR)/markdown-it-plantuml-ex/lib/plantuml.jar
+	mv plantuml.jar $(PLANTUML_JAR)
 
-README.html: markdown-it README.md
-	npx markdown-it-cli -o README.html README.md
+docs: README.md | $(PLANTUML_JAR)
+	java -jar $(PLANTUML_JAR) -tsvg README.md
+
+
+# markdown-it: $(PLANTUML_JAR)
+# 	npm install markdown-it --save
+# 	npm install markdown-it-cli --save
+# 	npm install markdown-it-meta-header --save
+# 	npm install markdown-it-plantuml-ex --save
+# 	echo "NPMDIR - $(NPMDIR)"
+# 	cp $(BINDIR)/plantuml.jar $(NPMDIR)/markdown-it-plantuml-ex/lib/plantuml.jar
+
+# README.html: markdown-it README.md
+# 	npx markdown-it-cli -o README.html README.md
 
 clean:
 	rm -rf $(BINDIR)/toolshed $(BINDIR)/provengine
 	rm -rf README.html
+	rm -rf ./images/*.svg
 
 realclean: clean
 	rm -rf $(BINDIR)/plantuml.jar

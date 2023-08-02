@@ -1,7 +1,7 @@
 ---
 Title:    IT Tool Shed
 Author:   David Hisel <david.hisel@cyberark.com>
-Updated:  <2023-07-12 15:20:50 david.hisel>
+Updated:  <2023-08-01 16:54:39 david.hisel>
 Comment:  The toolshed is an app to simulate the intake and provisioning
           of requests from application developers to IT staff to
           provision assets, and to show how to store credentials in
@@ -10,57 +10,108 @@ Comment:  The toolshed is an app to simulate the intake and provisioning
 
 ## IT Toolshed
 
-## Summary
-
 **NOTE: "IT Toolshed" is intended as a front-end for DEMO purposes only.**
 
-There are 2 components, the "ITSM App" and the "Provision Engine."   The "ITSM App" provides an intake form for an application developer to make a request for a resource, send the request to the provision engine, and report back to the user the access details.
+## Summary
 
-The primary purpose of IT Toolshed is to serve as a facade for use in demos.  E.g. present an intake form and simulate passing the params to a backend provision engine.
+There are 2 User scenarios that are modelled in this demo.  This accelerator illustrates how to setup for each of these scenarios.
 
-The following reference diagram illustrates a high-level process flow whereby a resource is requested, provisioned, and access details are returned to the requestor.  The details of the "CyberArk PAS Automation Goes Here" are discussed below and illustrate how to onboard credentials into CyberArk PAS.
+### Scenario 1 -- Provider Credentials in a File
 
+Provider credentials have permissions to create, modify and delete resources at the provider.  For this demo, AWS is the provider.  This scenario is used to contrast with Scenario 2 so that one can see the differences between the two.
+
+<!--
 ```plantuml
-@startuml ReferenceProcessFlowDiagram.png
-
-title Reference Process Flow Diagram
-
-actor AppDev as "App Developer"
-participant ITSMApp as "ITSM App\n(Ex: ServiceNow)"
+@startuml images/Scenario1Diagram.svg
+title Scenario 1 -- Provider Credentials in a File
 participant ProvEngine as "Provision Engine\n(Ex: in-house app)"
 participant Provisioner as "Provisioner\n(Ex: Terraform)"
 participant Provider as "Provider\n(Ex: AWS)"
 
-AppDev -> ITSMApp: Intake - Request Resource
-ITSMApp -> ProvEngine: Start Provision Process
-ProvEngine -> Provisioner: Trigger Provision
-Provisioner -> Provider: Create Resource Request
-Provider -> Provider: Create Resource
+ProvEngine -> ProvEngine: Read Provider creds\n<b>from a file</b>
+ProvEngine -> Provisioner: Pass Provider creds
+Provisioner -> Provider: (with Provider creds) Request resource
+Provider -> Provider: Create resource
 Provider -> Provisioner: Send Resource Details
 Provisioner -> ProvEngine: Send Resource Details
-ProvEngine -> ProvEngine: CyberArk PAS\nAutomation Goes Here
-ProvEngine -> ITSMApp: Report Resource Access Details
-ITSMApp -> AppDev: Provide Access Details
+ProvEngine -> ProvEngine: Store New Resource\ndetails in PAS Vault
 @enduml
 ```
+-->
+![Scenario 1 Diagram](images/Scenario1Diagram.svg)
 
-### "CyberArk PAS Automation Goes Here"
+### Scenario 2 -- Provider Credentials from Conjur
 
-#### Toolshed Simulated Architecture
+This scenario demonstrates the separation of concerns by using 2 sets of AWS credentials, one set of credentials is used to authenticate to Conjur Cloud, and the other set of credentials is used to provision resources in AWS.
 
+<!--
 ```plantuml
-@startuml
+@startuml images/Scenario2Diagram.svg
+title Scenario 2 - Provider Credentials from Conjur
+participant ProvEngine as "Provision Engine\n(Ex: in-house app)"
+participant Provisioner as "Provisioner\n(Ex: Terraform)"
+participant Provider as "Provider\n(Ex: AWS)"
+
+note over ProvEngine #FFAAAA: Use "authn-iam" Authenticator
+ProvEngine -> ProvEngine: Read Provider creds\n<b>from Conjur</b>
+ProvEngine -> Provisioner: Pass Provider creds
+Provisioner -> Provider: (with Provider creds) Request resource
+Provider -> Provider: Create resource
+Provider -> Provisioner: Send Resource Details
+Provisioner -> ProvEngine: Send Resource Details
+ProvEngine -> ProvEngine: Store New Resource\ndetails in PAS Vault
+@enduml
+```
+-->
+![Scenario 2 Diagram](images/Scenario2Diagram.svg)
+
+There are 2 apps that comprise this demo, the "ITSM App" and the "Provision Engine."   The "ITSM App" provides an intake form for an application developer to make a request for a resource.  The "Provision Engine" will accept the request, call the Provider to request resources to be created, and then store the new resource information in the PAS Vault safe.
+
+Under `cmd/toolshed` is the app that provides a web server app to provide the intake form and forward the request to the provision engine.
+
+Under `cmd/provengine` is the app that will either use the Provider creds from a file (Scenario 1), or, it will call on Conjur Cloud and fetch the provider credentials from there.
+
+The following reference diagram illustrates a high-level process flow whereby a resource is requested, provisioned, and access details are returned to the requestor.  
+
+## Prerequisites
+
+To use this solution accelerator, you will need access to an AWS account, CyberArk PAS Vault, and CyberArk Conjur Cloud with sync enabled.
+
+### For CyberArk PAS Vault
+
+1. Create a safe for storing the Provider credentials.  
+2. Create a safe for storing the new resource's account information.  This separate safe is to keep a separation of concerns between the accounts.
+
+### For AWS
+
+1. Create an AWS User with permissions to Create Tags, Create Key Pairs, and Create EC2 instances.  These credentials will be used to provision a new keypair and new ec2 instance.
+2. Store these credentials in your PAS Vault safe
+
+### For Conjur Cloud
+
+1. Create an AWS User with permissions associated to Conjur for "authn-iam" connector
+   * Create Access Key and Secret for this user
+   * Store these credentials in your PAS Vault safe
+2. Install Conjur IAM Authenticator
+3. Enable PAS Vault sync
+
+## Toolshed Simulated Architecture
+
+This diagram illustrates how the toolshed app and the provengine app work together.
+
+<!--
+```plantuml
+@startuml images/ToolshedSimulatedArchitectureDiagram.svg
 title Toolshed Simulated Architecture Diagram
 actor AppDev as "App Developer"
 
 AppDev -right-> [Toolshed]
 [Toolshed] -right-> [ProvEngine]: (1) Submit intake
-[ProvEngine] <-up- [Provider Creds\n(Conjur)]: (2) (Alternative)\nLoad creds\nIAM Auth to Conjur
+[ProvEngine] <-up- [Provider Creds\n(Conjur Cloud)]: (2) (Alternative)\nLoad creds\nIAM Auth to Conjur
 [ProvEngine] <-up- [Provider Creds\n(Local FIle)]: (2) Load creds
-[ProvEngine] --> [Provider]: (3) Request\nResource
-[ProvEngine] <-- [Provider]: (4) Send\nResource\nDetails
-[ProvEngine] --> [PASVault]: (5) Add\nAccount
-
+[ProvEngine] -down-> [Provider]: (3) Request\nResource
+[ProvEngine] <-down- [Provider]: (4) Send\nResource\nDetails
+[ProvEngine] -down-> [PASVault]: (5) Add\nAccount
 
 json Legend {
  "Toolshed": "ITSM App\n(Ex: ServiceNow)",
@@ -71,196 +122,140 @@ json Legend {
 }
 @enduml
 ```
+-->
+![Toolshed Simulated Architecture Diagram](images/ToolshedSimulatedArchitectureDiagram.svg)
 
-#### Scenario 1 -- Provide Creds in a File
+## Demo Setup and Usage
 
-```plantuml
-@startuml Scenario1Diagram.png
-title Scenario 1 -- Provide Creds in a File
-participant ProvEngine as "Provision Engine\n(Ex: in-house app)"
-participant Provisioner as "Provisioner\n(Ex: Terraform)"
-participant Provider as "Provider\n(Ex: AWS)"
+Please read and configure the resources as specified in the Prerequisites section.
 
-ProvEngine -> ProvEngine: Read Provider creds from a file
-ProvEngine -> Provisioner: Pass Provider creds
-Provisioner -> Provider: (Provider creds) Request resource
-Provider -> Provider: Create resource
-Provider -> ProvEngine: Send Resource Details
-ProvEngine -> ProvEngine: Store details in PAS Vault
-@enduml
+This demo can be run from linux/mac, or from an EC2 linux instance.
+
+Steps to run through the demo
+
+1. git clone toolshed
+2. cd toolshed
+3. cd into the bin directory
+4. Make copies of the pasconfig-example.toml, awsconfig-example.toml, and conjurconfig-example.toml files
+   1. cp pasconfig-example.toml pasconfig.toml
+   2. cp awsconfig-example.toml awsconfig.toml
+   3. cp conjurconfig-example.toml conjurconfig.toml
+5. Edit the config files to configure with the info from the Prerequisites
+6. make run
+7. open a browser to <http://localhost:8080/>
+8. In the browser fill in the toolshed intake form
+9. Open AWS console to view the new EC2 instance
+10. Open PAS Vault to view the new account for the new EC2 instance details
+
+### Configuration Files
+
+This section will describe the contents of the fields for each of the cnofiguratio files.
+
+#### PAS Config File
+
+Copy the example config file, `./cmd/provengine/pasconfig-example.toml` with name `./cmd/provengine/pasconfig.toml`
+
+Here is what the example looks like.
+
+```toml
+[pasvault]
+
+baseurl = "https://mypasserver.example.com"
+safename = "safe1"
+
+# User must be able to create account
+user = 'MYUSER' 
+pass = 'MYPASSWORD'
 ```
 
-#### Scenario 2 -- Provide Creds from Conjur
+| Field Name | Description | Required For Scenario 1 | Required For Scenario 2 |
+| -- | -- | -- | -- |
+| baseurl | This is the base url to your PAS instance; no trailing slash | YES | YES |
+| safename | This is the name of the PAS Vault safe that you created as part of the pre-requisites.  NOTE: This is where the NEW EC2 creds will be stored. | YES | YES |
+| user | This is the PAS Vault user name that will be used to get a session token; NOTE: must have permission to create an account in the safe. | YES | YES |
+| pass | This is the PAS Vault user's password. | YES | YES |
 
-```plantuml
-@startuml Scenario2Diagram.png
-title Scenario 2 - Provide Creds from Conjur
-participant ProvEngine as "Provision Engine\n(Ex: in-house app)"
-participant Provisioner as "Provisioner\n(Ex: Terraform)"
-participant Provider as "Provider\n(Ex: AWS)"
+#### AWS Config File
 
-note over ProvEngine #FFAAAA: HOW TO GET CONNECTION\nCREDS FOR CONJUR?
-ProvEngine -> ProvEngine: Read Provider creds from Conjur
-ProvEngine -> Provisioner: Pass Provider creds
-Provisioner -> Provider: (Provider creds) Request resource
-Provider -> Provider: Create resource
-Provider -> ProvEngine: Send Resource Details
-ProvEngine -> ProvEngine: Store details in PAS Vault
-@enduml
+Copy the example config file, `./cmd/provengine/awsconfig-example.toml` with name `./cmd/provengine/awsconfig.toml`
+
+**NOTE: For "Scenario 1"** -- Fill out all of these fields, and leave Conjur config file `empty`.
+
+**NOTE: For "Scenario 2"** -- ONLY fill out the `region` field, and completely fill out the conjur config.
+
+Here is what the example looks like.
+
+```toml
+[awsprovider]
+
+# REQUIRED
+# Set this to your Target Region where you will provision your EC2 instance
+region = "us-west-2"
+
+# OPTIONAL
+# Leave these blank if using Conjur
+accesskey = ""
+accesssecret = ""
 ```
 
-### IT Toolshed Request Flow
+| Field Name | Description | Required For Scenario 1 | Required For Scenario 2 |
+| -- | -- | -- | -- |
+| region | AWS Region where the NEW EC2 instance will be provisioned | YES | YES |
+| accesskey | AWS User's access key | YES | NO |
+| accesssecret | AWS User's access secret | YES | NO |
 
-```plantuml
-@startuml RequestResourceFlowDiagram.png
+#### Conjur Config File
 
-' Render: plantuml -tpng README.md -o images
+Copy the example config file, `./cmd/provengine/conjurconfig-example.toml` with name `./cmd/provengine/conjurconfig.toml`
 
-title Request Flow
+**NOTE: For "Scenario 1"** -- Leave Conjur config file `empty`.
 
-actor AppDev as "App Developer"
-participant Toolshed as "IT Toolshed"
-participant ProvEngine as "Provision Engine"
+**NOTE: For "Scenario 2"** -- Completely fill out the Conjur config file.
 
-== Request Resource ==
-AppDev -> Toolshed: Request Intake Form: GET /intake
-activate Toolshed
-Toolshed->AppDev: Response Intake Form
-deactivate Toolshed
+Here is what the example looks like.
 
-AppDev->AppDev: Fill-in Intake Form
+```toml
+[conjur]
+apiurl              = "https://conjurserver.example.com/api"
+account             = "conjur"
 
-AppDev -> Toolshed: Submit Intake Form: POST /provision
-activate Toolshed
+# Example: "host/conjur/authn-iam/MYAPPNAME/applications/abc123/toolshed-user"
+identity            = ""
 
-Toolshed -> ProvEngine: (async) Exec Provision Script
-rnote over ProvEngine
-Call script with Intake params
-endnote
-ProvEngine -> ProvEngine: Provision Resource
-rnote over ProvEngine
-Update status when complete
-endnote
-Toolshed->AppDev: Respond 202
-deactivate Toolshed
+# use "authn-iam/" as the base
+authenticator       = "authn-iam/APPNAME"
 
-== Request Details ==
+# Conjur Region -- used for authn-iam (Region where Conjur is running)
+awsregion           = "us-east-1"
 
-AppDev -> Toolshed: Request details: GET /details
-activate Toolshed
-Toolshed -> AppDev: Respond 102 or 200:\n200 Response includes values\nneeded for next stage
+# Conjur IAM auth creds -- AWS key/secret used for authn-iam (not the same as the provisioner creds)
+awsaccesskey        = ""
+awsaccesssecret     = ""
 
-deactivate Toolshed
-
-rnote over Toolshed
-endnote
-
-@enduml
+# Conjur path to AWS key/secret used to provision resources
+awsprovideraccesskeypath    = "data/vault/PATH/TO/THE/AWSProviderAccessKey"
+awsprovideraccesssecretpath = "data/vault/PATH/TO/THE/AWSProviderAccessSecret"
 ```
 
-### Meta
+| Field Name | Description | Required For Scenario 1 | Required For Scenario 2 |
+| -- | -- | -- | -- |
+| apiurl                      | Conjur API endpoint | NO | YES |
+| account  | Conjur Account | NO | YES |
+| identity  | Conjur Identity associated to the user | NO | YES |
+| authenticator  | Conjur Authenticator, prefix with "authn-iam/" and append the Authenticator "Service ID"  | NO | YES |
+| awsregion  | Conjur AWS Region -- which AWS region is running Conjur (this can be different from the provider AWS region) | NO | YES |
+| awsaccesskey  | Conjur AWS User's access key | NO | YES |
+| awsaccesssecret | Conjur AWS User's access secret | NO | YES |
+| awsprovideraccesskeypath  | Conjur Resources, Secrets "ID" where the Provider AWS Access Key is stored (see note below) | NO | YES |
+| awsprovideraccesssecretpath | Conjur Resources, Secrets "ID" where the Provider AWS Access Secret is stored (see note below) | NO | YES |
 
-#### Document Toolchain
+* **Conjur Authenticator "Service ID"**
+![Conjur Authenticator Service ID](images/authenticator-serviceid.png)
 
-* [PlantUML](https://plantuml.com/starting)
-* VSCode Extensions used to produce this document
-  * [PlantUML](https://marketplace.visualstudio.com/items?itemName=jebbs.plantuml)
-  * [Markdown Extension Pack](https://marketplace.visualstudio.com/items?itemName=bat67.markdown-extension-pack)
-  * [Markdown Plantuml Preview](https://marketplace.visualstudio.com/items?itemName=myml.vscode-markdown-plantuml-preview)
-* Emacs
-  * Install `markdown-it`, `markdown-it-cli` and the plugins for `plantuml-ex` and `meta-header`
+* **Conjur AWS Provider Access Key and Secret Path**
+![AWS Provider Access Key and Secret Path](images/conjur-aws-provider-keys.png)
 
-    ```bash
-    npm install markdown-it --save
-    npm install markdown-it-cli --save
-    npm install markdown-it-meta-header --save
-    npm install markdown-it-plantuml-ex --save
-    ```
+## References
 
-  * Recommend to download the latest plantuml.jar and replace the jar in `plantuml-ex`
-
-    ```bash
-    # use the latest plantuml.jar
-    curl -sLJO https://github.com/plantuml/plantuml/releases/download/v1.2023.9/plantuml.jar -o plantuml.jar
-    mv plantuml.jar ./node_modules/markdown-it-plantuml-ex/lib/plantuml.jar
-    ```
-
-  * Add this to your `.emacs.d/init.el`
-
-    ```elisp
-    ;; https://jblevins.org/projects/markdown-mode/
-    ;; Using npm "markdown-it" with "meta-header" and "plantuml-ex" plugins.
-    ;; Steps to install it:
-    ;;  npm install markdown-it --save
-    ;;  npm install markdown-it-cli --save
-    ;;  npm install markdown-it-meta-header --save
-    ;;  npm install markdown-it-plantuml-ex --save
-    ;;  # use the latest plantuml.jar
-    ;;  curl -sLJO https://github.com/plantuml/plantuml/releases/download/v1.2023.9/plantuml.jar -o plantuml.jar
-    ;;  mv plantuml.jar ./node_modules/markdown-it-plantuml-ex/lib/plantuml.jar
-    (use-package markdown-mode
-      :ensure t
-      :mode ("README\\.md\\'" . gfm-mode)
-      :custom
-      (markdown-command "npx markdown-it-cli")
-      (markdown-command-needs-filename t)
-      :config
-      ;; update preview buffer when md file is saved
-      (add-hook 'before-save-hook 'markdown-live-preview-re-export))
-    ```
-
-## NOTES
-
+* [PAS Vault Add Account](https://docs.cyberark.com/PAS/Latest/en/Content/WebServices/Add%20Account%20v10.htm)
 * [PAS Vault REST API doc](https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServices/Implementing%20Privileged%20Account%20Security%20Web%20Services%20.htm?tocpath=Developer%7CREST%20APIs%7C_____0)
-* [PAS Add Account](https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServices/Add%20Account%20v10.htm?tocpath=Developer%7CREST%20APIs%7CAccounts%7C_____5)
-
-* platform id: "winlocal"  # this goes into the json body
-* platform id: "unixssh" # this goes into the json body
-
-  ```json
-  {
-    "name": "INSTANCE ID",
-    "address": "PUBLIC DNS",
-    "userName": "Administrator", # or Ubuntu
-    "platformId": "string",
-    "safeName": "string",
-    "secretType": "key",  # windows: "password"
-    "secret": "string"  # PEM Key contents, or windows raw plaintext
-  }
-  ```
-
-### PAS Automation MVP diagram
-
-```plantuml
-@startuml pas-automation-diagram.png
-
-' Render: plantuml -tpng README.md -o images
-
-title Accelerator: PAS Automation - MVP
-
-participant "User"
-participant "User compute"
-participant "ProvEngine"
-participant "New EC2 Instance"
-participant "CyberArk Identity"
-participant "CyberArk PrivCloud"
-participant "CyberArk Conjur Cloud"
-
-"User"->"ProvEngine": Submit request
-"ProvEngine"->"New EC2 Instance": Provision
-rnote over "New EC2 Instance"
-v1: provision w/ hardcoded creds
-v2: pull creds from vault
-endnote
-"ProvEngine"<-"New EC2 Instance": Get password
-"ProvEngine"->"CyberArk Conjur Cloud": auth-iam
-"ProvEngine"<-"CyberArk Conjur Cloud": Conjur Token
-"ProvEngine"<-"CyberArk Conjur Cloud": Retrieve PCloud/Conjur Admin password
-"ProvEngine"->"CyberArk Identity": Oauth2 conf client authn
-"ProvEngine"<-"CyberArk Identity": PCloud token
-"ProvEngine"->"CyberArk Identity": check if requesting user has access\nto requested safe
-"ProvEngine"->"CyberArk PrivCloud": Create Windows account in existing safe
-"User"<-"ProvEngine": confirmation
-"User compute"->"New EC2 Instance": access EC2 instance w/ DPA or whatever
-@enduml
-```
