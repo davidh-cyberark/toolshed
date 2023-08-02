@@ -14,7 +14,7 @@ Comment:  The toolshed is an app to simulate the intake and provisioning
 
 ## Summary
 
-There are 2 User scenarios that are modelled in this demo.  This accelerator illustrates how to setup for each of these scenarios.
+There are 2 User scenarios that are modeled in this demo.  This accelerator illustrates how to setup for each of these scenarios.
 
 ### Scenario 1 -- Provider Credentials in a File
 
@@ -127,16 +127,16 @@ json Legend {
 
 ## Demo Setup and Usage
 
-Please read and configure the resources as specified in the Prerequisites section.
+IMPORTANT - Please read and configure the resources as specified in the Prerequisites section before proceding with the demo.
 
 This demo can be run from linux/mac, or from an EC2 linux instance.
 
-Steps to run through the demo
+### Steps to run through the demo
 
 1. git clone toolshed
 2. cd toolshed
 3. cd into the bin directory
-4. Make copies of the pasconfig-example.toml, awsconfig-example.toml, and conjurconfig-example.toml files
+4. Make copies of the pasconfig-example.toml, awsconfig-example.toml, and conjurconfig-example.toml files (See the next section "Configuration Files" for detailed explanation of each field.)
    1. cp pasconfig-example.toml pasconfig.toml
    2. cp awsconfig-example.toml awsconfig.toml
    3. cp conjurconfig-example.toml conjurconfig.toml
@@ -149,7 +149,7 @@ Steps to run through the demo
 
 ### Configuration Files
 
-This section will describe the contents of the fields for each of the cnofiguratio files.
+This section will describe the contents of the fields for each of the configuration files.
 
 #### PAS Config File
 
