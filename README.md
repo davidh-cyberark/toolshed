@@ -248,11 +248,11 @@ awsprovideraccesssecretpath = "data/vault/PATH/TO/THE/AWSProviderAccessSecret"
 | awsprovideraccesskeypath  | Conjur Resources, Secrets "ID" where the Provider AWS Access Key is stored (see note below[^2]) | NO | YES |
 | awsprovideraccesssecretpath | Conjur Resources, Secrets "ID" where the Provider AWS Access Secret is stored (see note below[^2]) | NO | YES |
 
-[^1]: **Conjur Authenticator "Service ID"**
-![Conjur Authenticator Service ID](images/authenticator-serviceid.png)
+[^1]: ![Conjur Authenticator Service ID](images/authenticator-serviceid.png) **Conjur Authenticator "Service ID"**
 
-[^2]: **Conjur AWS Provider Access Key and Secret Path**
-![AWS Provider Access Key and Secret Path](images/conjur-aws-provider-keys.png)
+
+[^2]: ![AWS Provider Access Key and Secret Path](images/conjur-aws-provider-keys.png) **Conjur AWS Provider Access Key and Secret Path**
+
 
 ## References
 
