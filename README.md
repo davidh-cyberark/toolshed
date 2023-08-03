@@ -241,20 +241,22 @@ awsprovideraccesssecretpath = "data/vault/PATH/TO/THE/AWSProviderAccessSecret"
 | apiurl                      | Conjur API endpoint | NO | YES |
 | account  | Conjur Account | NO | YES |
 | identity  | Conjur Identity associated to the user | NO | YES |
-| authenticator  | Conjur Authenticator, prefix with "authn-iam/" and append the Authenticator "Service ID"[^1]  | NO | YES |
+| authenticator  | Conjur Authenticator, prefix with "authn-iam/" and append the Authenticator "Service ID" [(footnote 1)](README.md#conjur-authenticator-service-id)  | NO | YES |
 | awsregion  | Conjur AWS Region -- which AWS region is running Conjur (this can be different from the provider AWS region) | NO | YES |
 | awsaccesskey  | Conjur AWS User's access key | NO | YES |
 | awsaccesssecret | Conjur AWS User's access secret | NO | YES |
-| awsprovideraccesskeypath  | Conjur Resources, Secrets "ID" where the Provider AWS Access Key is stored (see note below[^2]) | NO | YES |
-| awsprovideraccesssecretpath | Conjur Resources, Secrets "ID" where the Provider AWS Access Secret is stored (see note below[^2]) | NO | YES |
-
-[^1]: ![Conjur Authenticator Service ID](images/authenticator-serviceid.png) **Conjur Authenticator "Service ID"**
-
-
-[^2]: ![AWS Provider Access Key and Secret Path](images/conjur-aws-provider-keys.png) **Conjur AWS Provider Access Key and Secret Path**
-
+| awsprovideraccesskeypath  | Conjur Resources, Secrets "ID" where the Provider AWS Access Key is stored (see [footnote 2](README.md#conjur-aws-provider-access-key-and-secret-path)) | NO | YES |
+| awsprovideraccesssecretpath | Conjur Resources, Secrets "ID" where the Provider AWS Access Secret is stored (see [footnote 2](README.md#conjur-aws-provider-access-key-and-secret-path)) | NO | YES |
 
 ## References
 
 * [PAS Vault Add Account](https://docs.cyberark.com/PAS/Latest/en/Content/WebServices/Add%20Account%20v10.htm)
 * [PAS Vault REST API doc](https://docs.cyberark.com/Product-Doc/OnlineHelp/PAS/Latest/en/Content/WebServices/Implementing%20Privileged%20Account%20Security%20Web%20Services%20.htm?tocpath=Developer%7CREST%20APIs%7C_____0)
+
+## Footnotes
+
+### Conjur Authenticator "Service ID"
+![Conjur Authenticator Service ID](images/authenticator-serviceid.png)
+
+### Conjur AWS Provider Access Key and Secret Path
+![AWS Provider Access Key and Secret Path](images/conjur-aws-provider-keys.png)
