@@ -70,7 +70,7 @@ The following reference diagram illustrates a high-level process flow whereby a 
 
 ## Prerequisites
 
-To use this solution accelerator, you will need access to an AWS account, CyberArk PAS Vault, and CyberArk Conjur Cloud with sync enabled.
+To use this solution accelerator, you will need access to a Demo Host, an AWS account, CyberArk PAS Vault, and CyberArk Conjur Cloud with sync enabled.
 
 ### Demo Host
 
@@ -132,19 +132,8 @@ This demo can be run from linux/mac, or from an EC2 linux instance.
 
 ### Steps to run through the demo
 
-1. git clone toolshed
-2. cd toolshed
-3. cd into the `cmd/provengine` directory
-4. Make copies of the pasconfig-example.toml, awsconfig-example.toml, and conjurconfig-example.toml files (See the next section "Configuration Files" for detailed explanation of each field.)
-   1. cp pasconfig-example.toml pasconfig.toml
-   2. cp awsconfig-example.toml awsconfig.toml
-   3. cp conjurconfig-example.toml conjurconfig.toml
-5. Edit the config files to configure with the info from the Prerequisites
-6. make run
-7. open a browser to <http://localhost:8080/>
-8. In the browser fill in the toolshed intake form
-9. Open AWS console to view the new EC2 instance
-10. Open PAS Vault to view the new account for the new EC2 instance details
+* [Scenario 1 Demo Steps](README-scenario1.md)
+* [Scenario 2 Demo Steps](README-scenario2.md)
 
 ### Configuration Files
 
