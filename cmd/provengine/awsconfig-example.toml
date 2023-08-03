@@ -4,7 +4,12 @@
 # Set this to your Target Region where you will provision your EC2 instance
 region = "us-west-2"
 
-# OPTIONAL
-# Leave these blank if using Conjur
+# FOR Demo "Scenario 1"
+# -- REQUIRED to add the AWS Key/Secret fields here
+#
+# FOR Demo "Scenario 2"
+# -- Leave these fields empty strings 
+#    (in other words, leave these empty if using Conjur to fetch
+#    the AWS Provider creds)
 accesskey = ""
 accesssecret = ""

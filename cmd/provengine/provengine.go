@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,9 @@ func main() {
 
 	// Figure out which AWS creds to use
 	awscreds, err := GetAWSProviderCredentials()
+	if err != nil {
+		log.Fatalf("ERROR: could not acquire AWS Provider credentials: %s\n", err.Error())
+	}
 
 	// Provision the EC2 instance
 	result, err := CreateInstanceCmd(awscreds)
@@ -65,11 +69,20 @@ func main() {
 	AddVaultAccount(result)
 }
 
+type IDTenantResponse struct {
+	AccessToken      string `json:"access_token,omitempty"`
+	TokenType        string `json:"token_type,omitempty"`
+	ExpiresIn        int    `json:"expires_in,omitempty"`
+	Error            string `json:"error,omitempty"`
+	ErrorDescription string `json:"error_description,omitempty"`
+}
+
 type ToolshedPASVaultConfig struct {
-	BaseURL  string `koanf:"baseurl"`
-	SafeName string `koanf:"safename"`
-	User     string `koanf:"user"`
-	Pass     string `koanf:"pass"`
+	IDTenantURL string `koanf:"idtenanturl"`
+	PCloudURL   string `koanf:"pcloudurl"`
+	SafeName    string `koanf:"safename"`
+	User        string `koanf:"user"`
+	Pass        string `koanf:"pass"`
 }
 
 type ToolshedConjurConfig struct {
@@ -277,6 +290,7 @@ func CreateInstanceCmd(awscreds *AWSProviderCredentials) (*PASAddAccountInput, e
 	cfg, err = config.LoadDefaultConfig(context.TODO(),
 		config.WithClientLogMode(clientLogModeFlags),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(awscreds.AccessKey, awscreds.AccessSecret, "")))
+	cfg.Region = awscreds.Region
 
 	if err != nil {
 		panic("configuration error, " + err.Error())
@@ -461,51 +475,44 @@ func DecryptWithPrivateKey(ciphertext []byte, priv []byte) []byte {
 }
 
 func (c *PASClient) GetSessionToken() (string, error) {
-	/*
-		Request:
-			POST https://PAS_SERVER/PasswordVault/API/auth/Cyberark/Logon/
-			{
-				"username":"<user_name>",
-				"password":"<password>"
-			}
-		Response:
-			"session token"
-	*/
 
-	url := fmt.Sprintf("%s/passwordvault/api/auth/Cyberark/Logon/", c.BaseURL)
+	identurl := fmt.Sprintf("%s/oauth2/platformtoken", c.PASConfig.IDTenantURL) // Use PCloud OAuth
+
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+	data.Set("client_id", c.PASConfig.User)
+	data.Set("client_secret", c.PASConfig.Pass)
+	encodedData := data.Encode()
+
+	DebugLogger.Printf("FORM DATA for platform token request: %s\n", encodedData)
+
 	client := GetHTTPClient()
 
-	var bodyReader io.ReadCloser
-
-	content := fmt.Sprintf(`{"username":"%s","password":"%s"}`, c.PASConfig.User, c.PASConfig.Pass)
-
-	bodyReader = io.NopCloser(bytes.NewReader([]byte(content)))
-
-	// create the request
-	req, err := http.NewRequest(http.MethodPost, url, bodyReader)
+	req, err := http.NewRequest(http.MethodPost, identurl, strings.NewReader(encodedData))
 	if err != nil {
-		return "", fmt.Errorf("failed to create new request. %s", err)
+		DebugLogger.Fatalf("error in request to get platform token: %s", err.Error())
 	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Content-Length", strconv.Itoa(len(encodedData)))
+	response, err := client.Do(req)
 
-	// attach the header
-	req.Header = make(http.Header)
-	req.Header.Add("Content-Type", "application/json")
+	body, e := io.ReadAll(response.Body)
+	if e != nil {
+		log.Fatalf("error reading platform token response: %s", err.Error())
+	}
+	defer response.Body.Close()
 
-	// send request
-	res, err := client.Do(req)
+	// {"error":"string error code","error_description":"short decription goes here"}
+	// {"access_token":"xxxxxxxxxx","token_type":"Bearer","expires_in":900}
+	var idresp IDTenantResponse
+	//var objmap map[string]json.RawMessage
+	err = json.Unmarshal(body, &idresp)
 	if err != nil {
-		return "", fmt.Errorf("failed to send request. %s", err)
+		log.Fatalf("failed to parse json body for platform token: %s\n", err.Error())
 	}
 
-	// read response body
-	body, error := io.ReadAll(res.Body)
-	if error != nil {
-		log.Println(error)
-	}
-	// close response body
-	res.Body.Close()
-
-	return trimQuotes(string(body)), nil
+	DebugLogger.Printf("ID PLATFORM TOKEN RESPONSE:\n%s\n", string(body))
+	return fmt.Sprintf("%s %s", idresp.TokenType, idresp.AccessToken), nil
 }
 
 // AddVaultAccount adds the AWS info into the PAS Vault safe
@@ -514,7 +521,7 @@ func AddVaultAccount(account *PASAddAccountInput) {
 	CONF.Unmarshal("pasvault", &pasvault)
 
 	client := PASClient{
-		BaseURL:      pasvault.BaseURL,
+		BaseURL:      pasvault.PCloudURL,
 		InsecureTLS:  true,
 		SessionToken: "",
 		PASConfig:    pasvault,
@@ -538,6 +545,8 @@ func AddVaultAccount(account *PASAddAccountInput) {
 // AddAccount to CyberArk PAS Vault
 func (c *PASClient) AddAccount(account *PASAddAccountInput) (*PASAddAccountOutput, error) {
 	url := fmt.Sprintf("%s/passwordvault/api/Accounts", c.BaseURL)
+	DebugLogger.Printf("PAS API URL: %s\n", url)
+
 	client := GetHTTPClient()
 
 	content, err := json.Marshal(account)
@@ -569,10 +578,6 @@ func (c *PASClient) AddAccount(account *PASAddAccountInput) (*PASAddAccountOutpu
 		return &PASAddAccountOutput{}, fmt.Errorf("failed to send request. %s", err)
 	}
 
-	if res.StatusCode >= 300 {
-		return &PASAddAccountOutput{}, fmt.Errorf("received non-200 status code '%d'", res.StatusCode)
-	}
-
 	// read response body
 	body, error := io.ReadAll(res.Body)
 	if error != nil {
@@ -581,6 +586,10 @@ func (c *PASClient) AddAccount(account *PASAddAccountInput) (*PASAddAccountOutpu
 	// close response body
 	defer res.Body.Close()
 	DebugLogger.Printf("Response body after add account request: %s\n", string(body))
+
+	if res.StatusCode >= 300 {
+		return &PASAddAccountOutput{}, fmt.Errorf("received non-200 status code '%d'", res.StatusCode)
+	}
 
 	GetAccountResponse := &PASAddAccountOutput{}
 	err = json.Unmarshal(body, GetAccountResponse)
@@ -619,6 +628,7 @@ func FetchAWSProviderCredsFromConjur() (*AWSProviderCredentials, error) {
 	awssigningtime := time.Now()
 	// Reference - https://sts.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15
 	awsurl := fmt.Sprintf("https://%s%s?%s", awshost, awspath, awsquery)
+	DebugLogger.Printf("AWS STS URL: %s\n", awsurl)
 
 	// These creds are used to connect to Conjur
 	awscredprovider := credentials.NewStaticCredentialsProvider(conjconf.AWSAccessKey, conjconf.AWSAccessSecret, "")

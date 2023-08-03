@@ -1,14 +1,9 @@
----
-Title:    IT Tool Shed
+# IT Toolshed
+
+<!--
 Author:   David Hisel <david.hisel@cyberark.com>
 Updated:  <2023-08-01 16:54:39 david.hisel>
-Comment:  The toolshed is an app to simulate the intake and provisioning
-          of requests from application developers to IT staff to
-          provision assets, and to show how to store credentials in
-          CyberArk PAS.
----
-
-## IT Toolshed
+-->
 
 **NOTE: "IT Toolshed" is intended as a front-end for DEMO purposes only.**
 
@@ -77,6 +72,10 @@ The following reference diagram illustrates a high-level process flow whereby a 
 
 To use this solution accelerator, you will need access to an AWS account, CyberArk PAS Vault, and CyberArk Conjur Cloud with sync enabled.
 
+### Demo Host
+
+This demo can be run from linux/mac, or from an EC2 linux instance.
+
 ### For CyberArk PAS Vault
 
 1. Create a safe for storing the Provider credentials.  
@@ -135,7 +134,7 @@ This demo can be run from linux/mac, or from an EC2 linux instance.
 
 1. git clone toolshed
 2. cd toolshed
-3. cd into the bin directory
+3. cd into the `cmd/provengine` directory
 4. Make copies of the pasconfig-example.toml, awsconfig-example.toml, and conjurconfig-example.toml files (See the next section "Configuration Files" for detailed explanation of each field.)
    1. cp pasconfig-example.toml pasconfig.toml
    2. cp awsconfig-example.toml awsconfig.toml
@@ -160,20 +159,26 @@ Here is what the example looks like.
 ```toml
 [pasvault]
 
-baseurl = "https://mypasserver.example.com"
-safename = "safe1"
+# Cloud Identity Portal (ID Tenant where the user is managed)
+idtenanturl = "https://IDENTITY_TENANT_ID.id.cyberark.cloud"
 
-# User must be able to create account
+# User must be able to create PAS Vault account
 user = 'MYUSER' 
 pass = 'MYPASSWORD'
+
+# Privilege Cloud (Where the Vault-safe is located)
+pcloudurl = "https://cybr-secrets.privilegecloud.cyberark.cloud"
+safename = "safe1"
+
 ```
 
 | Field Name | Description | Required For Scenario 1 | Required For Scenario 2 |
 | -- | -- | -- | -- |
-| baseurl | This is the base url to your PAS instance; no trailing slash | YES | YES |
-| safename | This is the name of the PAS Vault safe that you created as part of the pre-requisites.  NOTE: This is where the NEW EC2 creds will be stored. | YES | YES |
+| idtenanturl | Cloud Identity Portal (ID Tenant where the user is managed) | YES | YES |
 | user | This is the PAS Vault user name that will be used to get a session token; NOTE: must have permission to create an account in the safe. | YES | YES |
 | pass | This is the PAS Vault user's password. | YES | YES |
+| pcloudurl | This is the base url to your PAS instance; no trailing slash | YES | YES |
+| safename | This is the name of the PAS Vault safe that you created as part of the pre-requisites.  NOTE: This is where the NEW EC2 creds will be stored. | YES | YES |
 
 #### AWS Config File
 
@@ -192,8 +197,13 @@ Here is what the example looks like.
 # Set this to your Target Region where you will provision your EC2 instance
 region = "us-west-2"
 
-# OPTIONAL
-# Leave these blank if using Conjur
+# FOR Demo "Scenario 1"
+# -- REQUIRED to add the AWS Key/Secret fields here
+#
+# FOR Demo "Scenario 2"
+# -- Leave these fields empty strings 
+#    (in other words, leave these empty if using Conjur to fetch
+#    the AWS Provider creds)
 accesskey = ""
 accesssecret = ""
 ```
@@ -242,17 +252,17 @@ awsprovideraccesssecretpath = "data/vault/PATH/TO/THE/AWSProviderAccessSecret"
 | apiurl                      | Conjur API endpoint | NO | YES |
 | account  | Conjur Account | NO | YES |
 | identity  | Conjur Identity associated to the user | NO | YES |
-| authenticator  | Conjur Authenticator, prefix with "authn-iam/" and append the Authenticator "Service ID"  | NO | YES |
+| authenticator  | Conjur Authenticator, prefix with "authn-iam/" and append the Authenticator "Service ID"[^1]  | NO | YES |
 | awsregion  | Conjur AWS Region -- which AWS region is running Conjur (this can be different from the provider AWS region) | NO | YES |
 | awsaccesskey  | Conjur AWS User's access key | NO | YES |
 | awsaccesssecret | Conjur AWS User's access secret | NO | YES |
-| awsprovideraccesskeypath  | Conjur Resources, Secrets "ID" where the Provider AWS Access Key is stored (see note below) | NO | YES |
-| awsprovideraccesssecretpath | Conjur Resources, Secrets "ID" where the Provider AWS Access Secret is stored (see note below) | NO | YES |
+| awsprovideraccesskeypath  | Conjur Resources, Secrets "ID" where the Provider AWS Access Key is stored (see note below[^2]) | NO | YES |
+| awsprovideraccesssecretpath | Conjur Resources, Secrets "ID" where the Provider AWS Access Secret is stored (see note below[^2]) | NO | YES |
 
-* **Conjur Authenticator "Service ID"**
+[^1]: **Conjur Authenticator "Service ID"**
 ![Conjur Authenticator Service ID](images/authenticator-serviceid.png)
 
-* **Conjur AWS Provider Access Key and Secret Path**
+[^2]: **Conjur AWS Provider Access Key and Secret Path**
 ![AWS Provider Access Key and Secret Path](images/conjur-aws-provider-keys.png)
 
 ## References
