@@ -256,7 +256,9 @@ awsprovideraccesssecretpath = "data/vault/PATH/TO/THE/AWSProviderAccessSecret"
 ## Footnotes
 
 ### Conjur Authenticator "Service ID"
+
 ![Conjur Authenticator Service ID](images/authenticator-serviceid.png)
 
 ### Conjur AWS Provider Access Key and Secret Path
+
 ![AWS Provider Access Key and Secret Path](images/conjur-aws-provider-keys.png)
