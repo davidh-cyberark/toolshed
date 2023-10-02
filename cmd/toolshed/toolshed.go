@@ -40,6 +40,8 @@ type ProvisionFields struct {
 	TagValue string
 	KeyPair  string
 	AMI      string
+	PASUser  string
+	PASPass  string
 }
 
 func AddQuotes(s string) string {
@@ -54,6 +56,8 @@ func MarshalProvengineArgs(pargs []string, w http.ResponseWriter, r *http.Reques
 	CMD.ProvisionFields.TagValue = r.FormValue("tag-value")
 	CMD.ProvisionFields.KeyPair = r.FormValue("keypair-name")
 	CMD.ProvisionFields.AMI = r.FormValue("ami-name")
+	CMD.ProvisionFields.PASUser = r.FormValue("pas-user")
+	CMD.ProvisionFields.PASPass = r.FormValue("pas-pass")
 
 	args := pargs
 
@@ -65,6 +69,8 @@ func MarshalProvengineArgs(pargs []string, w http.ResponseWriter, r *http.Reques
 	args = append(args, "-v", CMD.ProvisionFields.TagValue)
 	args = append(args, "-k", CMD.ProvisionFields.KeyPair)
 	args = append(args, "-a", CMD.ProvisionFields.AMI)
+	args = append(args, "-pasuser", CMD.ProvisionFields.PASUser)
+	args = append(args, "-paspass", CMD.ProvisionFields.PASPass)
 
 	return args
 }

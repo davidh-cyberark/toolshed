@@ -37,12 +37,14 @@ import (
 )
 
 var (
-	version     = "dev"
-	DEBUG       = false
-	CLI         CLIparams
-	CONF        = koanf.New(".")
-	CONFPARSER  = toml.Parser()
-	DebugLogger *log.Logger
+	version         = "dev"
+	DEBUG           = false
+	TLS_SKIP_VERIFY = false
+	CLI             CLIparams
+	CONF            = koanf.New(".")
+	CONFPARSER      = toml.Parser()
+	DebugLogger     *log.Logger
+	PASCONF         ToolshedPASVaultConfig
 )
 
 func main() {
@@ -51,7 +53,10 @@ func main() {
 	if !DEBUG {
 		DebugLogger.SetOutput(io.Discard) // turn off debug output
 	}
-	LoadConfigs() // load config files
+	LoadConfigs() // load config files into CONF
+	CONF.Unmarshal("pasvault", &PASCONF)
+	PASCONF.User = *CLI.pasuser
+	PASCONF.Pass = *CLI.paspass
 
 	// Figure out which AWS creds to use
 	awscreds, err := GetAWSProviderCredentials()
@@ -95,6 +100,7 @@ type ToolshedConjurConfig struct {
 	AWSAccessSecret         string `koanf:"awsaccesssecret"`
 	AWSProviderAccessKey    string `koanf:"awsprovideraccesskeypath"`
 	AWSProviderAccessSecret string `koanf:"awsprovideraccesssecretpath"`
+	AWSRoleToAssumeArn      string `koanf:"awsassumerolearn"`
 }
 
 type AWSProviderCredentials struct {
@@ -105,8 +111,9 @@ type AWSProviderCredentials struct {
 
 // CLIparams  Add CLI param fields here, and add processing of params to func ParseParams()
 type CLIparams struct {
-	debug *bool // print extra info to console
-	ver   *bool // Print Version and exit
+	debug         *bool // print extra info to console
+	ver           *bool // Print Version and exit
+	tlsskipverify *bool // skip TLS verify when calling Conjur (when conjur is configured with self-signed cert)
 
 	// User Provided Input
 	tagname  *string // AWS Tag name
@@ -115,7 +122,10 @@ type CLIparams struct {
 	ami      *string // AMI ID, ex: ami-1234567890
 
 	// Provision Engine Configurations
-	pasfile    *string // PAS Vault toml config file path
+	pasfile *string // PAS Vault toml config file path
+	pasuser *string // PAS User
+	paspass *string // PAS Pass
+
 	awsfile    *string // AWS Provider toml config file path
 	conjurfile *string // Conjur toml config file path
 }
@@ -124,6 +134,7 @@ type CLIparams struct {
 func ParseParams() {
 	CLI.debug = flag.Bool("d", false, "Enable debug settings")
 	CLI.ver = flag.Bool("version", false, "Print version")
+	CLI.tlsskipverify = flag.Bool("tls-skip-verify", false, "Skip TLS Verify when calling conjur and pas (for self-signed cert)")
 
 	CLI.tagname = flag.String("n", "", "The name of the tag to attach to the instance")
 	CLI.tagvalue = flag.String("v", "", "The value of the tag to attach to the instance")
@@ -131,6 +142,9 @@ func ParseParams() {
 	CLI.ami = flag.String("a", "", "The AMI to use")
 
 	CLI.pasfile = flag.String("pasconfig", "pasconfig.toml", "PAS Vault TOML config file, default is 'pasconfig.toml'")
+	CLI.pasuser = flag.String("pasuser", "pasconfig.toml", "PAS Vault TOML config file, default is 'pasconfig.toml'")
+	CLI.paspass = flag.String("paspass", "pasconfig.toml", "PAS Vault TOML config file, default is 'pasconfig.toml'")
+
 	CLI.awsfile = flag.String("awsconfig", "awsconfig.toml", "AWS Provider creds TOML config file, default is 'awsconfig.toml'")
 	CLI.conjurfile = flag.String("conjurconfig", "conjurconfig.toml", "Conjur TOML config file, default is 'conjurconfig.toml'")
 
@@ -141,6 +155,7 @@ func ParseParams() {
 		log.Printf("Version: %s\n", version)
 		os.Exit(0)
 	}
+	TLS_SKIP_VERIFY = *CLI.tlsskipverify
 
 	msg := ""
 	if *CLI.tagname == "" || *CLI.tagvalue == "" {
@@ -151,6 +166,9 @@ func ParseParams() {
 	}
 	if *CLI.ami == "" {
 		msg += "You must supply an AMI name (-a AMI-NAME), ex: -a \"ami-05cc83e573412838f\"\n"
+	}
+	if *CLI.pasuser == "" || *CLI.paspass == "" {
+		msg += "You must set both -pasuser and -paspass"
 	}
 	if len(msg) > 0 {
 		log.Fatalf("%s\n", msg)
@@ -189,7 +207,6 @@ func LoadConfigs() {
 type PASClient struct {
 	BaseURL      string
 	AuthType     string
-	InsecureTLS  bool
 	SessionToken string
 	PASConfig    ToolshedPASVaultConfig
 }
@@ -349,12 +366,12 @@ func CreateInstanceCmd(awscreds *AWSProviderCredentials) (*PASAddAccountInput, e
 		return pasdata, fmt.Errorf("got an error tagging the instance: %s", err.Error())
 	}
 
-	pasconf := &ToolshedPASVaultConfig{}
-	CONF.Unmarshal("pasvault", &pasconf)
+	// pasconf := &ToolshedPASVaultConfig{}
+	// CONF.Unmarshal("pasvault", &pasconf)
 
 	// Start populating pasdata
 	pasdata.Name = instanceID
-	pasdata.SafeName = pasconf.SafeName
+	pasdata.SafeName = PASCONF.SafeName
 
 	// default for non-windows AMI's
 	pasdata.UserName = "ubuntu"
@@ -517,14 +534,13 @@ func (c *PASClient) GetSessionToken() (string, error) {
 
 // AddVaultAccount adds the AWS info into the PAS Vault safe
 func AddVaultAccount(account *PASAddAccountInput) {
-	var pasvault ToolshedPASVaultConfig
-	CONF.Unmarshal("pasvault", &pasvault)
+	// var pasvault ToolshedPASVaultConfig
+	// CONF.Unmarshal("pasvault", &pasvault)
 
 	client := PASClient{
-		BaseURL:      pasvault.PCloudURL,
-		InsecureTLS:  true,
+		BaseURL:      PASCONF.PCloudURL,
 		SessionToken: "",
-		PASConfig:    pasvault,
+		PASConfig:    PASCONF,
 	}
 	token, err := client.GetSessionToken()
 	if err != nil {
@@ -623,6 +639,9 @@ func FetchAWSProviderCredsFromConjur() (*AWSProviderCredentials, error) {
 	awsregion := conjconf.AWSRegion
 	awsservice := "sts"
 	awshost := fmt.Sprintf("%s.amazonaws.com", awsservice)
+	// if awsregion != "us-east-1" {
+	// 	awshost = fmt.Sprintf("%s.%s.amazonaws.com", awsservice, awsregion)
+	// }
 	awspath := "/"
 	awsquery := "Action=GetCallerIdentity&Version=2011-06-15"
 	awssigningtime := time.Now()
@@ -640,8 +659,16 @@ func FetchAWSProviderCredsFromConjur() (*AWSProviderCredentials, error) {
 
 	stsclient := sts.NewFromConfig(cfg)
 
-	sessinput := &sts.GetSessionTokenInput{}
-	sesstokout, err := stsclient.GetSessionToken(context.TODO(), sessinput)
+	assumeroleinput := &sts.AssumeRoleInput{
+		RoleArn:         aws.String(conjconf.AWSRoleToAssumeArn),
+		RoleSessionName: aws.String("provengine"),
+	}
+	assumeRoleResp, err := stsclient.AssumeRole(context.TODO(), assumeroleinput)
+	errcheck(err)
+
+	sesstokout := assumeRoleResp
+	// sessinput := &sts.GetSessionTokenInput{}
+	// sesstokout, err := stsclient.GetSessionToken(context.TODO(), sessinput)
 	errcheck(err)
 
 	if DEBUG {
@@ -697,7 +724,8 @@ func FetchAWSProviderCredsFromConjur() (*AWSProviderCredentials, error) {
 
 	reqconj.Header.Add("Content-Type", "application/json")
 	reqconj.Header.Add("Accept-Encoding", "base64")
-	httpclient := &http.Client{}
+
+	httpclient := GetHTTPClient()
 	resp, err := httpclient.Do(reqconj)
 	errcheck(err)
 
@@ -742,15 +770,6 @@ func FetchAWSProviderCredsFromConjur() (*AWSProviderCredentials, error) {
 // ----------------------------------------
 // Helper functions
 
-func trimQuotes(s string) string {
-	if len(s) >= 2 {
-		if s[0] == '"' && s[len(s)-1] == '"' {
-			return s[1 : len(s)-1]
-		}
-	}
-	return s
-}
-
 func errcheck(err error) {
 	if err == nil {
 		return
@@ -787,7 +806,7 @@ func GetHTTPClient() *http.Client {
 		Timeout: time.Second * 30,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: TLS_SKIP_VERIFY,
 			},
 		},
 	}
