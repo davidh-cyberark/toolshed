@@ -1,8 +1,10 @@
+<img alt="CyberArk Accelerator" src="images/cyberark-banner.jpg">
+
 # IT Toolshed
 
 <!--
 Author:   David Hisel <david.hisel@cyberark.com>
-Updated:  <2023-0809-19 10:48:39 david.hisel>
+Updated:  <2023-10-02 11:08:39 david.hisel>
 -->
 
 **NOTE: "IT Toolshed" is intended as a front-end for DEMO purposes only.**
