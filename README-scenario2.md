@@ -1,3 +1,5 @@
+<img alt="CyberArk Accelerator" src="images/cyberark-banner.jpg">
+
 # IT Toolshed Scenario 2
 
 <!--
