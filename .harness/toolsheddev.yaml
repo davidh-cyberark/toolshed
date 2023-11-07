@@ -1,0 +1,14 @@
+inputSet:
+  pipeline:
+    identifier: Build_toolshed_1699367149448
+    properties:
+      ci:
+        codebase:
+          build:
+            type: branch
+            spec:
+              branch: <+trigger.branch>
+  name: toolshed-dev
+  identifier: toolsheddev
+  orgIdentifier: default
+  projectIdentifier: Toolshed
