@@ -1,0 +1,14 @@
+inputSet:
+  name: Build_toolshed_1699367149448-push-trigger-input-set
+  identifier: Build_toolshed_1699367149448pushtriggerinputset
+  orgIdentifier: default
+  projectIdentifier: Toolshed
+  pipeline:
+    identifier: Build_toolshed_1699367149448
+    properties:
+      ci:
+        codebase:
+          build:
+            type: branch
+            spec:
+              branch: <+trigger.branch>
