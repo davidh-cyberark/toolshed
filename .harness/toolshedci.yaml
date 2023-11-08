@@ -1,0 +1,42 @@
+pipeline:
+  name: toolshed-ci
+  identifier: toolshedci
+  projectIdentifier: Toolshed
+  orgIdentifier: default
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        connectorRef: account.Github_OAuth_1699367051531
+        repoName: <+input>
+        build: <+input>
+  stages:
+    - stage:
+        name: build toolshed
+        identifier: build_toolshed
+        description: ""
+        type: CI
+        spec:
+          cloneCodebase: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Docker
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Run Make
+                  identifier: Run_Make
+                  spec:
+                    connectorRef: docker_hub
+                    image: golang:1.20
+                    shell: Sh
+                    command: make
+          sharedPaths:
+            - bin
+          caching:
+            enabled: false
+            paths: []
